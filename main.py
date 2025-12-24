@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from routers import login, question_analysis, meeting, question_template, advisor, client, summarization, transcript, process
+import uvicorn
 
 # Load environment variables
 load_dotenv()
@@ -87,5 +88,4 @@ def _shutdown_db():
             pass
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
