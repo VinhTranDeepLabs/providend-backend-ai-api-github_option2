@@ -2,24 +2,95 @@ from fastapi import APIRouter, Query, HTTPException, status, Depends, Request
 from fastapi.responses import RedirectResponse
 from typing import Optional
 from services.auth_service import auth_service
+from models.schemas import SSORequest, SSOResponse
+from services.advisor_service import AdvisorService
 import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+def get_conn(request: Request):
+    """Return the shared DB connection stored on app.state.db_conn."""
+    conn = getattr(request.app.state, "db_conn", None)
+    if conn is None:
+        raise RuntimeError("DB connection not available on app.state.db_conn")
+    return conn
 
-@router.get("/login")
-async def login(redirect_to: Optional[str] = Query(None, description="Optional redirect URL after login")):
+@router.post("/sso", response_model=SSOResponse)
+async def sso_login(
+    request: SSORequest,
+    conn=Depends(get_conn)
+):
     """
-    Initiate OAuth2 login flow with Azure Entra ID
+    Single Sign-On endpoint - Validates Microsoft Entra ID token
     
-    Automatically redirects to Microsoft login page
+    - Validates token against Microsoft's JWKS
+    - Creates or retrieves user from advisors table
+    - Returns user information
     """
-    # Build authorization URL
-    auth_url = auth_service.get_authorization_url(state=redirect_to)
+    try:
+        # Import and validate token
+        from utils.token import validate_token
+        
+        # Validate token with JWKS (raises HTTPException if invalid)
+        token_payload = validate_token(request.access_token)
+        
+        # Extract user info from token
+        user_oid = token_payload.get("oid") or token_payload.get("sub")
+        user_email = token_payload.get("email") or token_payload.get("preferred_username") or token_payload.get("upn")
+        user_name = token_payload.get("name")
+        
+        if not user_email or not user_oid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token missing required user information (email or oid)"
+            )
+        
+        # Get or create user in database
+        advisor_service = AdvisorService()
+        user = advisor_service.get_or_create_user_from_token(
+            oid=user_oid,
+            email=user_email,
+            name=user_name or user_email.split("@")[0],  # Fallback to email prefix
+            conn=conn
+        )
+        
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve or create user"
+            )
+        
+        logger.info(f"SSO successful for user: {user_email}")
+        
+        return SSOResponse(
+            valid=True,
+            user=user,
+            access_token=request.access_token
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"SSO error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error: {str(e)}"
+        )
     
-    logger.info("Initiating OAuth2 login flow")
-    return RedirectResponse(url=auth_url)
+
+# @router.get("/login")
+# async def login(redirect_to: Optional[str] = Query(None, description="Optional redirect URL after login")):
+#     """
+#     Initiate OAuth2 login flow with Azure Entra ID
+    
+#     Automatically redirects to Microsoft login page
+#     """
+#     # Build authorization URL
+#     auth_url = auth_service.get_authorization_url(state=redirect_to)
+    
+#     logger.info("Initiating OAuth2 login flow")
+#     return RedirectResponse(url=auth_url)
 
 
 @router.get("/callback")
@@ -101,31 +172,31 @@ async def verify_token(
         )
 
 
-@router.get("/logout")
-async def logout(
-    post_logout_redirect: Optional[str] = Query(None, description="URL to redirect after logout")
-):
-    """
-    Logout user from Azure AD
+# @router.get("/logout")
+# async def logout(
+#     post_logout_redirect: Optional[str] = Query(None, description="URL to redirect after logout")
+# ):
+#     """
+#     Logout user from Azure AD
     
-    Redirects to Azure AD logout endpoint
-    """
-    logout_url = auth_service.get_logout_url(post_logout_redirect)
+#     Redirects to Azure AD logout endpoint
+#     """
+#     logout_url = auth_service.get_logout_url(post_logout_redirect)
     
-    logger.info("User logout initiated")
-    return RedirectResponse(url=logout_url)
+#     logger.info("User logout initiated")
+#     return RedirectResponse(url=logout_url)
 
 
-@router.get("/check")
-async def check_auth():
-    """
-    Check if auth configuration is valid
-    """
-    from config.settings import AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_REDIRECT_URI
+# @router.get("/check")
+# async def check_auth():
+#     """
+#     Check if auth configuration is valid
+#     """
+#     from config.settings import AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_REDIRECT_URI
     
-    return {
-        "configured": True,
-        "tenant_id": AZURE_TENANT_ID[:8] + "...",  # Partial for security
-        "client_id": AZURE_CLIENT_ID[:8] + "...",
-        "redirect_uri": AZURE_REDIRECT_URI
-    }
+#     return {
+#         "configured": True,
+#         "tenant_id": AZURE_TENANT_ID[:8] + "...",  # Partial for security
+#         "client_id": AZURE_CLIENT_ID[:8] + "...",
+#         "redirect_uri": AZURE_REDIRECT_URI
+#     }

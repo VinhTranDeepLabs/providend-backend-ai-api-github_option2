@@ -207,3 +207,17 @@ class TranscriptSegmentCountResponse(BaseModel):
     success: bool = True
     meeting_id: str
     segment_count: int
+
+
+# ==================== SSO SCHEMAS ====================
+
+class SSORequest(BaseModel):
+    """Request model for SSO endpoint"""
+    access_token: str = Field(..., description="Microsoft Entra ID access token")
+
+
+class SSOResponse(BaseModel):
+    """Response model for SSO endpoint"""
+    valid: bool = Field(..., description="Whether the token is valid")
+    user: Dict[str, Any] = Field(..., description="User information from database")
+    access_token: str = Field(..., description="The validated access token")

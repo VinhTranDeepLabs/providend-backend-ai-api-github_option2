@@ -136,3 +136,80 @@ class AdvisorService:
             "client_status_breakdown": client_status_counts,
             "meeting_status_breakdown": meeting_status_counts
         }
+    
+
+    def get_advisor_by_email(self, email: str, conn=None) -> Optional[Dict[str, Any]]:
+        """Get advisor by email address"""
+        try:
+            cursor = conn.cursor()
+            query = "SELECT * FROM advisors WHERE email = %s LIMIT 1;"
+            cursor.execute(query, (email,))
+            result = cursor.fetchone()
+            cursor.close()
+            
+            if result:
+                return {
+                    "advisor_id": result[0],
+                    "name": result[1],
+                    "email": result[2],
+                    "role": result[3],
+                    "date_created": result[4]
+                }
+            return None
+        except Exception as e:
+            print(f"Error fetching advisor by email: {e}")
+            return None
+
+
+    def get_or_create_user_from_token(self, oid: str, email: str, name: str, conn=None) -> Optional[Dict[str, Any]]:
+        """
+        Get existing user or create new advisor from validated token
+        
+        Args:
+            oid: Microsoft user object ID
+            email: User email from token
+            name: User display name from token
+            conn: Database connection
+        
+        Returns:
+            User/advisor record
+        """
+        db = DatabaseUtils(conn)
+        
+        # Try to find by OID (advisor_id)
+        user = db.get_advisor(oid)
+        
+        if user:
+            # Update email/name if changed
+            if user.get("email") != email or user.get("name") != name:
+                db.update_advisor(advisor_id=oid, name=name, email=email)
+                user = db.get_advisor(oid)
+            return user
+        
+        # Check if email exists with different advisor_id
+        existing_by_email = self.get_advisor_by_email(email, conn)
+        
+        if existing_by_email and existing_by_email.get("advisor_id") != oid:
+            # Email exists but with old ID - update to use OID
+            old_id = existing_by_email["advisor_id"]
+            db.delete_advisor(old_id)
+            db.create_advisor(
+                advisor_id=oid,
+                name=name,
+                email=email,
+                role=existing_by_email.get("role", "Advisor")
+            )
+            return db.get_advisor(oid)
+        
+        # User doesn't exist - create new
+        result = db.create_advisor(
+            advisor_id=oid,
+            name=name,
+            email=email,
+            role="Advisor"
+        )
+        
+        if result.get("success"):
+            return db.get_advisor(oid)
+        
+        return None
