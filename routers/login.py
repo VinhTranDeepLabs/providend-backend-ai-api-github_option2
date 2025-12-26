@@ -93,56 +93,56 @@ async def sso_login(
 #     return RedirectResponse(url=auth_url)
 
 
-@router.get("/callback")
-async def auth_callback(
-    code: str = Query(..., description="Authorization code from Azure AD"),
-    state: Optional[str] = Query(None, description="State parameter for redirect")
-):
-    """
-    Handle OAuth2 callback from Azure Entra ID
+# @router.get("/callback")
+# async def auth_callback(
+#     code: str = Query(..., description="Authorization code from Azure AD"),
+#     state: Optional[str] = Query(None, description="State parameter for redirect")
+# ):
+#     """
+#     Handle OAuth2 callback from Azure Entra ID
     
-    Exchange authorization code for access token and redirect to frontend with token
-    """
-    try:
-        # Exchange authorization code for tokens
-        token_data = await auth_service.exchange_code_for_token(code)
+#     Exchange authorization code for access token and redirect to frontend with token
+#     """
+#     try:
+#         # Exchange authorization code for tokens
+#         token_data = await auth_service.exchange_code_for_token(code)
         
-        # Get user profile from Microsoft Graph
-        user_profile = await auth_service.get_user_profile(token_data["access_token"])
+#         # Get user profile from Microsoft Graph
+#         user_profile = await auth_service.get_user_profile(token_data["access_token"])
         
-        # Build user object
-        user = {
-            "id": user_profile.get("id"),
-            "email": user_profile.get("mail") or user_profile.get("userPrincipalName"),
-            "name": user_profile.get("displayName"),
-            "access_token": token_data["access_token"],
-            "refresh_token": token_data.get("refresh_token"),
-            "expires_in": token_data.get("expires_in")
-        }
+#         # Build user object
+#         user = {
+#             "id": user_profile.get("id"),
+#             "email": user_profile.get("mail") or user_profile.get("userPrincipalName"),
+#             "name": user_profile.get("displayName"),
+#             "access_token": token_data["access_token"],
+#             "refresh_token": token_data.get("refresh_token"),
+#             "expires_in": token_data.get("expires_in")
+#         }
         
-        # Redirect to frontend with token (in production, use HTTP-only cookies)
-        from config.settings import FRONTEND_URL
-        redirect_url = state or f"{FRONTEND_URL}/auth/success"
+#         # Redirect to frontend with token (in production, use HTTP-only cookies)
+#         from config.settings import FRONTEND_URL
+#         redirect_url = state or f"{FRONTEND_URL}/auth/success"
         
-        # Pass tokens as URL parameters (for development)
-        # In production, set HTTP-only cookies instead
-        full_redirect = (
-            f"{redirect_url}"
-            f"?access_token={token_data['access_token']}"
-            f"&email={user['email']}"
-            f"&name={user['name']}"
-        )
+#         # Pass tokens as URL parameters (for development)
+#         # In production, set HTTP-only cookies instead
+#         full_redirect = (
+#             f"{redirect_url}"
+#             f"?access_token={token_data['access_token']}"
+#             f"&email={user['email']}"
+#             f"&name={user['name']}"
+#         )
         
-        logger.info(f"Authentication successful for user: {user['email']}")
-        return RedirectResponse(url=full_redirect)
+#         logger.info(f"Authentication successful for user: {user['email']}")
+#         return RedirectResponse(url=full_redirect)
         
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Authentication callback error: {str(e)}")
-        from config.settings import FRONTEND_URL
-        error_redirect = f"{FRONTEND_URL}/auth/error?message=authentication_failed"
-        return RedirectResponse(url=error_redirect)
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Authentication callback error: {str(e)}")
+#         from config.settings import FRONTEND_URL
+#         error_redirect = f"{FRONTEND_URL}/auth/error?message=authentication_failed"
+#         return RedirectResponse(url=error_redirect)
 
 
 @router.get("/verify")
