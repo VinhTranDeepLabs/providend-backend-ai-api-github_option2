@@ -5,6 +5,8 @@ from services.auth_service import auth_service
 from models.schemas import SSORequest, SSOResponse
 from services.advisor_service import AdvisorService
 import logging
+import os
+import hashlib
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -79,6 +81,91 @@ async def sso_login(
         )
     
 
+@router.get("/verify")
+async def verify_token(
+    access_token: str = Query(..., description="Access token to verify")
+):
+    """
+    Verify if access token is valid
+    
+    Returns user info if token is valid, 401 if not
+    """
+    try:
+        # Validate token
+        decoded = auth_service.validate_token(access_token)
+        user = auth_service.extract_user_from_token(decoded)
+        
+        return {
+            "valid": True,
+            "user": user
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token"
+        )
+
+
+@router.post("/dev-login")
+async def dev_login(
+    email: str,
+    name: str = "Dev User",
+    conn=Depends(get_conn)
+):
+    """⚠️ DEV ONLY - Bypass SSO for testing"""
+    if os.getenv("ENVIRONMENT") != "development":
+        raise HTTPException(403, "Dev login disabled")
+    
+    # Generate fake OID
+    dev_oid = f"dev-{hashlib.sha256(email.encode()).hexdigest()[:16]}"
+    
+    advisor_service = AdvisorService()
+    user = advisor_service.get_or_create_user_from_token(
+        oid=dev_oid,
+        email=email,
+        name=name,
+        conn=conn
+    )
+    
+    return {
+        "valid": True,
+        "user": user,
+        "access_token": "dev-token-" + dev_oid
+    }
+
+
+# @router.get("/logout")
+# async def logout(
+#     post_logout_redirect: Optional[str] = Query(None, description="URL to redirect after logout")
+# ):
+#     """
+#     Logout user from Azure AD
+    
+#     Redirects to Azure AD logout endpoint
+#     """
+#     logout_url = auth_service.get_logout_url(post_logout_redirect)
+    
+#     logger.info("User logout initiated")
+#     return RedirectResponse(url=logout_url)
+
+
+# @router.get("/check")
+# async def check_auth():
+#     """
+#     Check if auth configuration is valid
+#     """
+#     from config.settings import AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_REDIRECT_URI
+    
+#     return {
+#         "configured": True,
+#         "tenant_id": AZURE_TENANT_ID[:8] + "...",  # Partial for security
+#         "client_id": AZURE_CLIENT_ID[:8] + "...",
+#         "redirect_uri": AZURE_REDIRECT_URI
+#     }
+
+
 # @router.get("/login")
 # async def login(redirect_to: Optional[str] = Query(None, description="Optional redirect URL after login")):
 #     """
@@ -143,60 +230,3 @@ async def sso_login(
 #         from config.settings import FRONTEND_URL
 #         error_redirect = f"{FRONTEND_URL}/auth/error?message=authentication_failed"
 #         return RedirectResponse(url=error_redirect)
-
-
-@router.get("/verify")
-async def verify_token(
-    access_token: str = Query(..., description="Access token to verify")
-):
-    """
-    Verify if access token is valid
-    
-    Returns user info if token is valid, 401 if not
-    """
-    try:
-        # Validate token
-        decoded = auth_service.validate_token(access_token)
-        user = auth_service.extract_user_from_token(decoded)
-        
-        return {
-            "valid": True,
-            "user": user
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token"
-        )
-
-
-# @router.get("/logout")
-# async def logout(
-#     post_logout_redirect: Optional[str] = Query(None, description="URL to redirect after logout")
-# ):
-#     """
-#     Logout user from Azure AD
-    
-#     Redirects to Azure AD logout endpoint
-#     """
-#     logout_url = auth_service.get_logout_url(post_logout_redirect)
-    
-#     logger.info("User logout initiated")
-#     return RedirectResponse(url=logout_url)
-
-
-# @router.get("/check")
-# async def check_auth():
-#     """
-#     Check if auth configuration is valid
-#     """
-#     from config.settings import AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_REDIRECT_URI
-    
-#     return {
-#         "configured": True,
-#         "tenant_id": AZURE_TENANT_ID[:8] + "...",  # Partial for security
-#         "client_id": AZURE_CLIENT_ID[:8] + "...",
-#         "redirect_uri": AZURE_REDIRECT_URI
-#     }
