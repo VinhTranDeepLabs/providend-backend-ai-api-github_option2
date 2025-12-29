@@ -7,6 +7,10 @@ from services.advisor_service import AdvisorService
 import logging
 import os
 import hashlib
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -17,6 +21,7 @@ def get_conn(request: Request):
     if conn is None:
         raise RuntimeError("DB connection not available on app.state.db_conn")
     return conn
+
 
 @router.post("/sso", response_model=SSOResponse)
 async def sso_login(
@@ -132,7 +137,7 @@ async def dev_login(
     return {
         "valid": True,
         "user": user,
-        "access_token": "dev-token-" + dev_oid
+        "access_token": os.getenv("DEV_LOGIN_TOKEN")
     }
 
 
