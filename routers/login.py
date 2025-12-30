@@ -102,7 +102,12 @@ async def verify_token(
         
         return {
             "valid": True,
-            "user": user
+            "user": {
+                "advisor_id": user["id"],
+                "email": user["email"],
+                "name": user["name"],
+                "roles": user["roles"]
+            }
         }
     except HTTPException:
         raise
