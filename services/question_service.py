@@ -1,5 +1,5 @@
 from services.azure_openai_service import azure_openai_service
-from config.questions import PRESET_QUESTIONS
+from config.questions import PRESET_QUESTIONS, CATEGORIZED_QUESTIONS
 from models.schemas import QuestionAnswer
 from typing import List, Dict, Any, Optional
 from utils.db_utils import DatabaseUtils
@@ -148,7 +148,84 @@ class QuestionService:
         )
         
         return response.get("unanswered_questions", [])
+
+    def track_questions(self, template_name: str, transcript: str, meeting_id: str = None, conn=None) -> Dict[str, Dict[str, bool]]:
+        """
+        Track which questions were answered in the transcript, organized by sections.
+        
+        Args:
+            template_name: The question template name to use
+            transcript: The conversation transcript (can be passed directly or retrieved from meeting)
+            meeting_id: Optional meeting ID to retrieve transcript from
+            conn: Database connection
+        
+        Returns:
+            Dictionary with sections as keys, and question:boolean pairs as values
+        """
+        # If meeting_id is provided and transcript is empty, try to fetch from meeting_details
+        if meeting_id and not transcript:
+            transcript = self._fetch_transcript_from_meeting(meeting_id, conn)
+            if not transcript:
+                raise ValueError(f"No transcript found for meeting_id: {meeting_id}. Please run aggregation first.")
+        
+        # Get categorized questions for this template
+        if template_name not in CATEGORIZED_QUESTIONS:
+            raise ValueError(f"Template '{template_name}' not found in CATEGORIZED_QUESTIONS")
+        
+        categorized_questions = CATEGORIZED_QUESTIONS[template_name]
+        
+        # Build the prompt with all questions organized by section
+        sections_str = ""
+        for section, questions in categorized_questions.items():
+            sections_str += f"\n{section}:\n"
+            for i, q in enumerate(questions, 1):
+                sections_str += f"  {i}. {q}\n"
+        
+        system_prompt = """You are an expert at analyzing conversation transcripts.
+        Your task is to determine which questions from each section were answered or discussed in the transcript.
+
+        A question is considered "answered" (true) if:
+        - The question was directly asked and answered
+        - The topic was discussed in the conversation
+        - The information related to the question was mentioned
+
+        A question is considered "unanswered" (false) if:
+        - It was never discussed
+        - It was asked but not answered
+        - The answer provided was incomplete or unclear
+
+        Return the results as a JSON object with sections as keys, and question:boolean pairs as values:
+        {
+            "section 1 - values": {
+                "What is important to you about money?": true,
+                "What is the role of money in your life?": false
+            },
+            "section 2 - goals": {
+                ...
+            }
+        }
+
+        Include ALL questions from ALL sections with their answered status (true/false)."""
+        
+        user_prompt = f"""Analyze the following transcript and determine which questions were answered in each section:
+
+        Questions organized by sections:
+        {sections_str}
+
+        Transcript:
+        {transcript}
+
+        Provide the tracking results in JSON format with ALL sections and ALL questions."""
+        
+        response = azure_openai_service.generate_json_completion(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.3
+        )
+        
+        return response
     
+
     def _fetch_transcript_from_meeting(self, meeting_id: str, conn=None) -> Optional[str]:
         """
         Helper method to retrieve aggregated transcript from meeting_details.

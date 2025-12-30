@@ -7,7 +7,9 @@ from models.schemas import (
     RecommendQuestions,
     RecommendQuestionsResponse,
     AutofillQuestionsRequest,
-    AutofillQuestionsResponse
+    AutofillQuestionsResponse,
+    QuestionTrackerRequest,
+    QuestionTrackerResponse
 )
 from services.question_service import QuestionService
 
@@ -69,6 +71,7 @@ async def get_recommended_questions(request: RecommendQuestions, conn=Depends(ge
             detail=f"Failed to identify unanswered questions: {str(e)}"
         )
     
+    
 @router.post(
     "/autofill",
     response_model=AutofillQuestionsResponse,
@@ -108,4 +111,42 @@ async def autofill_questions(request: AutofillQuestionsRequest, conn=Depends(get
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to autofill questions: {str(e)}"
+        )
+    
+
+@router.post(
+    "/tracker",
+    response_model=QuestionTrackerResponse,
+    responses={500: {"model": ErrorResponse}}
+)
+async def track_questions(request: QuestionTrackerRequest, conn=Depends(get_conn)):
+    """
+    Track which questions were answered in the transcript, organized by sections
+    
+    - **question_template**: The question template name to use for tracking
+    - **transcript**: The conversation transcript to analyze
+    
+    Returns questions organized by section with boolean indicating if answered
+    """
+    try:
+        sections = QuestionService().track_questions(
+            template_name=request.question_template,
+            transcript=request.transcript,
+            conn=conn
+        )
+        
+        return QuestionTrackerResponse(
+            sections=sections,
+            success=True
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to track questions: {str(e)}"
         )
