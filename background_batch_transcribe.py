@@ -7,6 +7,7 @@ This script:
 3. Parses filename: <meeting_id>_<YYYY-MM-DD HH-MM-SS+00>.extension
 4. Saves transcript to transcript_aggregator table
 5. Tracks processed files in processed_audio_files table
+6. Automatically retries failed transcriptions
 
 Usage:
     python audio_monitor.py
@@ -51,7 +52,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_PORT = os.getenv("DB_PORT", "5432")
 
 # Monitor configuration
-POLL_INTERVAL = int(os.getenv("AUDIO_MONITOR_INTERVAL", "60"))  # seconds
+POLL_INTERVAL = int(os.getenv("AUDIO_MONITOR_INTERVAL", "5"))  # seconds
 SUPPORTED_EXTENSIONS = [".wav", ".mp3", ".ogg", ".flac"]
 
 # ==================== LOGGING SETUP ====================
@@ -180,10 +181,12 @@ def list_blob_audio_files():
 # ==================== DATABASE FUNCTIONS ====================
 
 def get_processed_blobs(conn):
-    """Get list of blob names that have been processed"""
+    """Get list of blob names that have been completed or are currently processing (excludes failed)"""
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT blob_name FROM processed_audio_files;")
+        # Only return blobs with 'completed' or 'processing' status
+        # This allows 'failed' blobs to be retried in the next loop
+        cursor.execute("SELECT blob_name FROM processed_audio_files WHERE status IN ('completed', 'processing');")
         results = cursor.fetchall()
         cursor.close()
         return set(row[0] for row in results)
@@ -376,10 +379,10 @@ def monitor_loop():
                 # Get list of blobs in storage
                 blob_files = list_blob_audio_files()
                 
-                # Get list of already processed blobs
+                # Get list of already processed blobs (excludes failed)
                 processed_blobs = get_processed_blobs(conn)
                 
-                # Find new files
+                # Find new files (includes failed files for retry)
                 new_files = [
                     blob for blob in blob_files
                     if blob['name'] not in processed_blobs
