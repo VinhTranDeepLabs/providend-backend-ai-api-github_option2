@@ -3,8 +3,10 @@ from config.settings import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
 from models.schemas import TranscriptionResult, SpeakerSegment
 from typing import List, Optional
 from utils.db_utils import DatabaseUtils
+from utils.blob_utils import blob_utils
 import requests
 import time
+import json
 
 class TranscribeService:
     def __init__(self):
@@ -14,115 +16,226 @@ class TranscribeService:
             subscription=self.speech_key,
             region=self.speech_region
         )
+
     
+    def format_timestamp(self, seconds):
+        """Format seconds to HH:MM:SS"""
+        seconds = int(seconds)
+        hrs = seconds // 3600
+        mins = (seconds % 3600) // 60
+        secs = seconds % 60
+        return f"{hrs:02d}:{mins:02d}:{secs:02d}"
+    
+
     def batch_transcribe_urls(
         self,
         audio_urls: List[str],
-        language: str = "en-US"
+        language: str = 'auto'
     ) -> List[TranscriptionResult]:
         """
-        Perform batch transcription with speaker diarization using Azure Batch Transcription API
-        
+        Transcribe audio files with speaker diarization
+
         Args:
-            audio_urls: List of publicly accessible audio file URLs
-            language: Language code (default: en-US)
-        
+            audio_urls: List of public URLs to audio files
+            language: 'auto' for auto-detect, or specific locale like 'en-US', 'zh-CN', 'bn-IN'
+
         Returns:
-            List of TranscriptionResult objects
+            List of TranscriptionResult objects, one per audio file
         """
-        # Batch Transcription REST API endpoint
-        endpoint = f"https://{self.speech_region}.api.cognitive.microsoft.com/speechtotext/v3.1/transcriptions"
-        
+
+        base_url = f'https://{AZURE_SPEECH_REGION}.api.cognitive.microsoft.com/speechtotext/v3.2'
+        transcriptions_url = f'{base_url}/transcriptions'
+
         headers = {
-            "Ocp-Apim-Subscription-Key": self.speech_key,
-            "Content-Type": "application/json"
+            'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
+            'Content-Type': 'application/json'
         }
-        
-        # Create batch transcription job
-        transcription_definition = {
-            "contentUrls": audio_urls,
-            "properties": {
-                "diarizationEnabled": True,
-                "wordLevelTimestampsEnabled": True,
-                "punctuationMode": "DictatedAndAutomatic",
-                "profanityFilterMode": "Masked"
-            },
-            "locale": language,
-            "displayName": f"Batch Transcription {time.time()}"
-        }
-        
-        # Submit transcription job
-        response = requests.post(endpoint, headers=headers, json=transcription_definition)
-        response.raise_for_status()
-        
-        transcription_location = response.headers.get("Location")
-        transcription_id = response.json().get("self")
-        
-        # Poll for completion
-        status = "NotStarted"
-        while status not in ["Succeeded", "Failed"]:
-            time.sleep(5)  # Wait 5 seconds between polls
-            
-            status_response = requests.get(transcription_id, headers=headers)
-            status_response.raise_for_status()
-            status_data = status_response.json()
-            status = status_data.get("status")
-            
-            if status == "Failed":
-                raise Exception(f"Transcription failed: {status_data.get('properties', {}).get('error', {})}")
-        
-        # Get transcription files
-        files_url = f"{transcription_id}/files"
+
+        # Configure language settings
+        if language == 'auto':
+            primary_locale = 'en-US'
+            job_config = {
+                'contentUrls': audio_urls,
+                'properties': {
+                    'diarizationEnabled': True,
+                    'diarization': {
+                        'speakers': {
+                            'minCount': 1,
+                            'maxCount': 10
+                        }
+                    },
+                    'wordLevelTimestampsEnabled': True,
+                    'punctuationMode': 'DictatedAndAutomatic',
+                    'profanityFilterMode': 'Masked',
+                    'languageIdentification': {
+                        'candidateLocales': ['en-US', 'zh-CN'],
+                        'mode': 'Continuous'
+                    }
+                },
+                'locale': primary_locale,
+                'displayName': f'Batch_Transcription_{int(time.time())}'
+            }
+        else:
+            job_config = {
+                'contentUrls': audio_urls,
+                'properties': {
+                    'diarizationEnabled': True,
+                    'diarization': {
+                        'speakers': {
+                            'minCount': 1,
+                            'maxCount': 10
+                        }
+                    },
+                    'wordLevelTimestampsEnabled': True,
+                    'punctuationMode': 'DictatedAndAutomatic',
+                    'profanityFilterMode': 'Masked'
+                },
+                'locale': language,
+                'displayName': f'Batch_Transcription_{int(time.time())}'
+            }
+
+        # Step 1: Create transcription job
+        print(f"Creating transcription job for: {audio_urls}")
+        create_response = requests.post(transcriptions_url, headers=headers, json=job_config)
+
+        if create_response.status_code != 201:
+            raise Exception(f"Failed to create job: {create_response.text}")
+
+        job_data = create_response.json()
+        job_url = job_data['self']
+        job_id = job_url.split('/')[-1]
+        print(f"Job created: {job_id}")
+
+        # Step 2: Poll for completion
+        max_wait_time = 600  # 10 minutes
+        poll_interval = 5
+        elapsed_time = 0
+
+        while elapsed_time < max_wait_time:
+            time.sleep(poll_interval)
+            elapsed_time += poll_interval
+
+            status_response = requests.get(job_url, headers=headers)
+
+            if status_response.status_code != 200:
+                raise Exception(f"Failed to get status: {status_response.text}")
+
+            job_status = status_response.json()
+            status = job_status['status']
+
+            print(f"Status: {status} (elapsed: {elapsed_time}s)")
+
+            if status == 'Succeeded':
+                break
+            elif status == 'Failed':
+                error = job_status.get('properties', {}).get('error', {})
+                raise Exception(f"Job failed: {error.get('message', 'Unknown error')}")
+            elif status in ['NotStarted', 'Running']:
+                continue
+
+        if elapsed_time >= max_wait_time:
+            raise Exception("Timeout: Job took longer than 10 minutes")
+
+        # Step 3: Get all transcript files
+        files_url = f"{job_url}/files"
         files_response = requests.get(files_url, headers=headers)
-        files_response.raise_for_status()
+
+        if files_response.status_code != 200:
+            raise Exception(f"Failed to get files: {files_response.text}")
+
         files_data = files_response.json()
-        
+
+        # Filter transcription files (one per audio URL)
+        transcript_files = [f for f in files_data['values'] if f['kind'] == 'Transcription']
+
+        if not transcript_files:
+            raise Exception("No transcript files found")
+
+        # Step 4: Process each transcript file
         results = []
         
-        # Process each transcription result
-        for file_info in files_data.get("values", []):
-            if file_info.get("kind") == "Transcription":
-                content_url = file_info.get("links", {}).get("contentUrl")
-                
-                # Download transcription result
-                content_response = requests.get(content_url)
-                content_response.raise_for_status()
-                transcription_data = content_response.json()
-                
-                # Parse combined transcript and speaker segments
-                combined_phrases = transcription_data.get("combinedRecognizedPhrases", [{}])[0]
-                full_transcript = combined_phrases.get("display", "")
-                
-                speaker_segments = []
-                for phrase in transcription_data.get("recognizedPhrases", []):
-                    speaker = phrase.get("speaker", "Unknown")
-                    text = phrase.get("nBest", [{}])[0].get("display", "")
-                    start_time = phrase.get("offsetInTicks", 0) / 10000000  # Convert ticks to seconds
-                    duration = phrase.get("durationInTicks", 0) / 10000000
-                    end_time = start_time + duration
+        for transcript_file in transcript_files:
+            transcript_url = transcript_file['links']['contentUrl']
+            transcript_response = requests.get(transcript_url)
+
+            if transcript_response.status_code != 200:
+                print(f"Warning: Failed to download transcript: {transcript_response.text}")
+                continue
+
+            transcript_json = transcript_response.json()
+            
+            # Extract source audio URL
+            source_url = transcript_json.get('source', audio_urls[0] if len(audio_urls) == 1 else '')
+            
+            # Extract language
+            detected_language = transcript_json.get('locale', language if language != 'auto' else 'en-US')
+            
+            # Step 5: Parse speaker segments
+            speaker_segments = []
+            transcript_lines = []
+            max_end_time = 0.0
+
+            if 'recognizedPhrases' in transcript_json:
+                for phrase in transcript_json['recognizedPhrases']:
+                    speaker_id = phrase.get('speaker', 0)
+                    n_best = phrase.get('nBest', [])
+
+                    if not n_best:
+                        continue
+
+                    best_result = n_best[0]
+                    text = best_result.get('display', '')
+
+                    if not text.strip():
+                        continue
+
+                    # Calculate start and end times
+                    offset_ticks = phrase.get('offsetInTicks', 0)
+                    duration_ticks = phrase.get('durationInTicks', 0)
                     
-                    speaker_segments.append(SpeakerSegment(
-                        speaker=f"Speaker {speaker}",
+                    start_time = offset_ticks / 10_000_000  # Convert to seconds
+                    end_time = (offset_ticks + duration_ticks) / 10_000_000
+                    
+                    max_end_time = max(max_end_time, end_time)
+
+                    speaker_label = f"Speaker {speaker_id + 1}"
+
+                    segment = SpeakerSegment(
+                        speaker=speaker_label,
                         text=text,
                         start_time=start_time,
                         end_time=end_time
-                    ))
-                
-                # Find matching audio URL (simplified approach)
-                audio_url = audio_urls[0] if audio_urls else "unknown"
-                
-                results.append(TranscriptionResult(
-                    audio_url=audio_url,
-                    transcript=full_transcript,
-                    speaker_segments=speaker_segments,
-                    language=language,
-                    duration=speaker_segments[-1].end_time if speaker_segments else None
-                ))
-        
-        # Clean up: Delete the transcription job
-        requests.delete(transcription_id, headers=headers)
-        
+                    )
+                    
+                    speaker_segments.append(segment)
+                    transcript_lines.append(f"{speaker_label}: {text}")
+
+            # Sort segments by start time
+            speaker_segments.sort(key=lambda x: x.start_time if x.start_time else 0)
+
+            # Create formatted transcript with speaker labels
+            transcript = '\n'.join(transcript_lines)
+
+            # Create TranscriptionResult
+            result = TranscriptionResult(
+                audio_url=source_url,
+                transcript=transcript,
+                speaker_segments=speaker_segments,
+                language=detected_language,
+                duration=max_end_time if max_end_time > 0 else None
+            )
+            
+            results.append(result)
+
+        # Step 6: Cleanup - delete job
+        try:
+            requests.delete(job_url, headers=headers)
+            print(f"Job {job_id} deleted")
+        except:
+            pass
+
         return results
+        
     
     def aggregate_transcript(self, meeting_id: str, conn=None) -> str:
         """
@@ -161,6 +274,7 @@ class TranscribeService:
                 raise ValueError(f"No transcript found for meeting_id: {meeting_id}")
         
         return transcript
+    
     
     def get_transcript(self, meeting_id: str, conn=None) -> Optional[str]:
         """
