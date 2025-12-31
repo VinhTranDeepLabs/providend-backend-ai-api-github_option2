@@ -185,14 +185,12 @@ class QuestionService:
         Your task is to determine which questions from each section were answered or discussed in the transcript.
 
         A question is considered "answered" (true) if:
-        - The question was directly asked and answered
+        - The sementics of the question was asked and answered
         - The topic was discussed in the conversation
-        - The information related to the question was mentioned
 
         A question is considered "unanswered" (false) if:
         - It was never discussed
         - It was asked but not answered
-        - The answer provided was incomplete or unclear
 
         Return the results as a JSON object with sections as keys, and question:boolean pairs as values:
         {
@@ -213,9 +211,7 @@ class QuestionService:
         {sections_str}
 
         Transcript:
-        {transcript}
-
-        Provide the tracking results in JSON format with ALL sections and ALL questions."""
+        {transcript}"""
         
         response = azure_openai_service.generate_json_completion(
             system_prompt=system_prompt,

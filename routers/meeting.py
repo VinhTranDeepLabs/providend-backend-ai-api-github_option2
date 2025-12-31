@@ -68,6 +68,25 @@ async def create_meeting(
     }
 
 
+@router.post("/{meeting_id}/end")
+async def get_meeting_details(meeting_id: str, conn=Depends(get_conn)):
+    """
+    End a meeting
+
+    Args:
+        meeting_id: the Meeting ID
+
+    Returns:
+        meeting ended message
+    """
+    result = meeting_service.update_meeting_status(meeting_id, "Completed", conn=conn)
+    if result["success"]:
+        message = "meeting ended successfully"
+    else:
+        message = "failed to end meeting"
+    return message
+
+
 @router.get("/{meeting_id}")
 async def get_meeting_details(meeting_id: str, conn=Depends(get_conn)):
     """
