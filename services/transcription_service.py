@@ -3,7 +3,6 @@ from config.settings import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
 from models.schemas import TranscriptionResult, SpeakerSegment
 from typing import List, Optional
 from utils.db_utils import DatabaseUtils
-from utils.blob_utils import blob_utils
 import requests
 import time
 import json
