@@ -148,6 +148,17 @@ def create_database_tables(connection):
             start_datetime TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """
+
+    create_processed_audio_files = """
+        CREATE TABLE processed_audio_files (
+            blob_name VARCHAR(255) PRIMARY KEY,
+            meeting_id VARCHAR(100),
+            status VARCHAR(50),  -- 'processing', 'completed', 'failed'
+            processed_datetime TIMESTAMPTZ,
+            error_message TEXT,
+            file_size_bytes BIGINT
+        );
+    """
     
     print("\nCreating tables...")
     if execute_command(connection, create_advisors_table):
@@ -170,6 +181,52 @@ def create_database_tables(connection):
     
     if execute_command(connection, create_transcript_aggregator_table):
         print("✓ 'transcript_aggregator' table created")
+
+    if execute_command(connection, create_processed_audio_files):
+        print("✓ 'transcript_aggregator' table created")
+
+    # ==================== ADD PROCESSING COLUMNS TO MEETING_DETAILS ====================
+    print("\n--- Adding Processing Columns to meeting_details ---")
+    
+    # Check if columns already exist before adding them
+    add_processing_status = """
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                          WHERE table_name='meeting_details' AND column_name='processing_status') THEN
+                ALTER TABLE meeting_details ADD COLUMN processing_status VARCHAR(50) DEFAULT 'pending';
+            END IF;
+        END $$;
+    """
+    
+    add_processing_retry_count = """
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                          WHERE table_name='meeting_details' AND column_name='processing_retry_count') THEN
+                ALTER TABLE meeting_details ADD COLUMN processing_retry_count INTEGER DEFAULT 0;
+            END IF;
+        END $$;
+    """
+    
+    add_processing_error = """
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                          WHERE table_name='meeting_details' AND column_name='processing_error') THEN
+                ALTER TABLE meeting_details ADD COLUMN processing_error TEXT;
+            END IF;
+        END $$;
+    """
+    
+    if execute_command(connection, add_processing_status):
+        print("✓ 'processing_status' column added")
+    
+    if execute_command(connection, add_processing_retry_count):
+        print("✓ 'processing_retry_count' column added")
+    
+    if execute_command(connection, add_processing_error):
+        print("✓ 'processing_error' column added")
 
 
 def drop_database_tables(connection):

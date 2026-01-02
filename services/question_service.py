@@ -1,5 +1,5 @@
 from services.azure_openai_service import azure_openai_service
-from config.questions import PRESET_QUESTIONS, CATEGORIZED_QUESTIONS
+from config.questions import CATEGORIZED_QUESTIONS
 from models.schemas import QuestionAnswer
 from typing import List, Dict, Any, Optional
 from utils.db_utils import DatabaseUtils
@@ -7,7 +7,7 @@ import json
 
 class QuestionService:
     def __init__(self):
-        self.preset_questions = PRESET_QUESTIONS
+        self.categorized_questions = CATEGORIZED_QUESTIONS
 
     def autofill_questions(self, template_name: str, transcript: str, meeting_id: str = None, conn=None) -> List[QuestionAnswer]:
         """
@@ -28,21 +28,19 @@ class QuestionService:
             transcript = self._fetch_transcript_from_meeting(meeting_id, conn)
             if not transcript:
                 raise ValueError(f"No transcript found for meeting_id: {meeting_id}. Please run aggregation first.")
-        
-        # questions_str = "\n".join([f"{i+1}. {q}" for i, q in enumerate(self.preset_questions[template_name])])
+            
         # Get categorized questions for this template
-        if template_name not in CATEGORIZED_QUESTIONS:
-            raise ValueError(f"Template '{template_name}' not found in CATEGORIZED_QUESTIONS")
+        if template_name not in self.categorized_questions:
+            raise ValueError(f"Template '{template_name}' not found in categorized_questions")
         
-        categorized_questions = CATEGORIZED_QUESTIONS[template_name]
+        categorized_questions = self.categorized_questions[template_name]
         
         # Build the prompt with all questions organized by section
-        questions_str = ""
-        question_number = 1
+        sections_str = ""
         for section, questions in categorized_questions.items():
-            for q in questions:
-                questions_str += f"{question_number}. {q}\n"
-                question_number += 1
+            sections_str += f"\n{section}:\n"
+            for i, q in enumerate(questions, 1):
+                sections_str += f"  {i}. {q}\n"
 
         
         system_prompt = """You are an expert at analyzing conversation transcripts and extracting information.
@@ -68,7 +66,7 @@ class QuestionService:
         user_prompt = f"""Analyze the following transcript and extract answers to these questions:
 
         Questions by sections - You should only focus on the questions, the way they are sectioned is not important.:
-        {questions_str}
+        {sections_str}
 
         Transcript:
         {transcript}
