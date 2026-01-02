@@ -88,7 +88,7 @@ async def autofill_questions(request: AutofillQuestionsRequest, conn=Depends(get
     Returns preset questions with extracted answers and confidence levels
     """
     try:
-        answered_questions, unanswered_questions = QuestionService().autofill_questions(
+        autofilled_questions = QuestionService().autofill_questions(
             request.template_name, 
             request.transcript, 
             request.meeting_id,
@@ -97,8 +97,7 @@ async def autofill_questions(request: AutofillQuestionsRequest, conn=Depends(get
         
         return AutofillQuestionsResponse(
             message="Questions autofilled successfully",
-            question_answered=answered_questions,
-            questions_missed=unanswered_questions,
+            autofilled_questions=autofilled_questions,
             filled_template=request.template_name,
         )
         

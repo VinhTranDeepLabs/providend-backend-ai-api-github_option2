@@ -29,7 +29,21 @@ class QuestionService:
             if not transcript:
                 raise ValueError(f"No transcript found for meeting_id: {meeting_id}. Please run aggregation first.")
         
-        questions_str = "\n".join([f"{i+1}. {q}" for i, q in enumerate(self.preset_questions[template_name])])
+        # questions_str = "\n".join([f"{i+1}. {q}" for i, q in enumerate(self.preset_questions[template_name])])
+        # Get categorized questions for this template
+        if template_name not in CATEGORIZED_QUESTIONS:
+            raise ValueError(f"Template '{template_name}' not found in CATEGORIZED_QUESTIONS")
+        
+        categorized_questions = CATEGORIZED_QUESTIONS[template_name]
+        
+        # Build the prompt with all questions organized by section
+        questions_str = ""
+        question_number = 1
+        for section, questions in categorized_questions.items():
+            for q in questions:
+                questions_str += f"{question_number}. {q}\n"
+                question_number += 1
+
         
         system_prompt = """You are an expert at analyzing conversation transcripts and extracting information.
         Your task is to read the transcript and identify answers to specific questions.
@@ -53,7 +67,7 @@ class QuestionService:
         
         user_prompt = f"""Analyze the following transcript and extract answers to these questions:
 
-        Questions:
+        Questions by sections - You should only focus on the questions, the way they are sectioned is not important.:
         {questions_str}
 
         Transcript:
@@ -68,22 +82,27 @@ class QuestionService:
         )
         
         # Convert to QuestionAnswer objects
-        question_answers = []
-        question_unanswered = []
+        question_autofill = []
         for item in response.get("questions", []):
             if item.get("answer"):
-                question_answers.append(QuestionAnswer(
+                question_autofill.append(QuestionAnswer(
                     question=item.get("question"),
+                    question_answered=True,
                     answer=item.get("answer"),
                     confidence=item.get("confidence")
                 ))
             else:
-                question_unanswered.append(item.get("question"))
+                question_autofill.append(QuestionAnswer(
+                    question=item.get("question"),
+                    question_answered=False,
+                    answer=item.get("answer"),
+                    confidence=item.get("confidence")
+                ))
 
         # Save autofilled answers to database if meeting_id is provided
         # (This can be implemented later to store in meeting_details.questions field)
         
-        return question_answers, question_unanswered
+        return question_autofill
     
     def get_unanswered_questions(self, question_template_name: str, transcript: str, 
                                 num_of_recommendations: int, meeting_id: str = None, conn=None) -> List[str]:

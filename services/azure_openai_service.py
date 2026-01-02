@@ -22,7 +22,7 @@ class AzureOpenAIService:
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.7,
-        max_tokens: int = 2000,
+        max_tokens: int = 16000,
         response_format: Dict[str, Any] = None
     ) -> str:
         """

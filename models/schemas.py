@@ -29,13 +29,13 @@ class SummaryResponse(BaseModel):
 
 class QuestionAnswer(BaseModel):
     question: str
+    question_answered: bool
     answer: Optional[str]
     confidence: Optional[str] = Field(None, description="Confidence level: high, medium, low")
 
 class AutofillQuestionsResponse(BaseModel):
     message: str
-    question_answered: List[QuestionAnswer]
-    questions_missed: List[str]
+    autofilled_questions: List[QuestionAnswer]
     filled_template: str
 
 class UnansweredQuestionsResponse(BaseModel):

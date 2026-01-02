@@ -4,7 +4,7 @@ from models.schemas import TranscriptionResult, SpeakerSegment
 from typing import List, Optional
 from utils.db_utils import DatabaseUtils
 import requests
-import time 
+import time
 import json
 
 class TranscribeService:
