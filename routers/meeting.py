@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime
 from uuid import uuid4
 from services.meeting_service import MeetingService
+from models.schemas import GetQuestionTrackerResponse
 
 router = APIRouter()
 meeting_service = MeetingService()
@@ -473,6 +474,32 @@ async def update_meeting_questions(
         "message": "Questions updated successfully",
         "meeting_id": meeting_id
     }
+
+
+@router.get("/{meeting_id}/tracker", response_model=GetQuestionTrackerResponse)
+async def get_meeting_tracker(meeting_id: str, conn=Depends(get_conn)):
+    """
+    Get question tracker for a meeting.
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        Question tracker data with sections and answered status
+    """
+    tracker = meeting_service.get_meeting_tracker(meeting_id, conn=conn)
+    
+    if tracker is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No question tracker found for this meeting"
+        )
+    
+    return GetQuestionTrackerResponse(
+        success=True,
+        meeting_id=meeting_id,
+        tracker=tracker
+    )
 
 
 @router.patch("/{meeting_id}/questions/status")

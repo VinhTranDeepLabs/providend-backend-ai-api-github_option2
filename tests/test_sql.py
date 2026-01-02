@@ -110,6 +110,7 @@ def create_database_tables(connection):
             summary TEXT,
             recommendations TEXT,
             questions TEXT,
+            question_tracker TEXT,
             advisor_notes TEXT,
             updated_datetime TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -150,7 +151,7 @@ def create_database_tables(connection):
     """
 
     create_processed_audio_files = """
-        CREATE TABLE processed_audio_files (
+        CREATE TABLE IF NOT EXISTS processed_audio_files (
             blob_name VARCHAR(255) PRIMARY KEY,
             meeting_id VARCHAR(100),
             status VARCHAR(50),  -- 'processing', 'completed', 'failed'
@@ -218,6 +219,19 @@ def create_database_tables(connection):
             END IF;
         END $$;
     """
+
+    add_question_tracker = """
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                          WHERE table_name='meeting_details' AND column_name='question_tracker') THEN
+                ALTER TABLE meeting_details ADD COLUMN question_tracker TEXT;
+            END IF;
+        END $$;
+    """
+    
+    if execute_command(connection, add_question_tracker):
+        print("✓ 'question_tracker' column added")
     
     if execute_command(connection, add_processing_status):
         print("✓ 'processing_status' column added")
@@ -227,6 +241,9 @@ def create_database_tables(connection):
     
     if execute_command(connection, add_processing_error):
         print("✓ 'processing_error' column added")
+
+    if execute_command(connection, add_question_tracker):
+        print("✓ 'question_tracker' column added")
 
 
 def drop_database_tables(connection):

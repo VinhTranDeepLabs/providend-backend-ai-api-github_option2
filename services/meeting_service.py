@@ -101,6 +101,7 @@ class MeetingService:
             "summary": details.get("summary"),
             "recommendations": details.get("recommendations"),
             "questions": details.get("questions"),
+            "question_tracker": details.get("question_tracker"),
             "advisor_notes": details.get("advisor_notes"),
             "updated_datetime": details.get("updated_datetime")
         }
@@ -128,7 +129,7 @@ class MeetingService:
         
         Args:
             meeting_id: Meeting identifier
-            **updates: Fields to update (transcript, summary, recommendations, questions, advisor_notes)
+            **updates: Fields to update (transcript, summary, recommendations, questions, advisor_notes, question_tracker)
         
         Returns:
             Dict with success status
@@ -139,7 +140,7 @@ class MeetingService:
     def create_meeting_detail(self, meeting_id: str, transcript: str = None, 
                              summary: str = None, recommendations: str = None, 
                              questions: str = None, advisor_notes: str = None, 
-                             conn=None) -> Dict[str, Any]:
+                             question_tracker: str = None, conn=None) -> Dict[str, Any]:
         """Create or update meeting_details record"""
         db = DatabaseUtils(conn)
         return db.create_meeting_detail(
@@ -148,7 +149,8 @@ class MeetingService:
             summary=summary,
             recommendations=recommendations,
             questions=questions,
-            advisor_notes=advisor_notes
+            advisor_notes=advisor_notes,
+            question_tracker=question_tracker
         )
 
     def delete_meeting(self, meeting_id: str, conn=None) -> Dict[str, Any]:
@@ -258,6 +260,51 @@ class MeetingService:
         """Update advisor notes in meeting_details"""
         db = DatabaseUtils(conn)
         return db.update_meeting_detail(meeting_id=meeting_id, advisor_notes=notes)
+    
+    # ==================== QUESTION TRACKER METHODS ====================
+    
+    def get_meeting_tracker(self, meeting_id: str, conn=None) -> Optional[Dict[str, Any]]:
+        """Get question_tracker from meeting_details.
+        
+        Args:
+            meeting_id: Meeting identifier
+            conn: Database connection
+        
+        Returns:
+            Parsed question_tracker object or None
+        """
+        details = self.get_meeting_detail(meeting_id, conn)
+        if not details:
+            return None
+        
+        tracker_raw = details.get("question_tracker")
+        if not tracker_raw:
+            return None
+        
+        # Try to parse as JSON
+        try:
+            tracker_obj = json.loads(tracker_raw) if isinstance(tracker_raw, str) else tracker_raw
+            return tracker_obj
+        except Exception:
+            return None
+    
+    def update_meeting_tracker(self, meeting_id: str, tracker_data: Dict[str, Any], conn=None) -> Dict[str, Any]:
+        """Update question_tracker in meeting_details.
+        
+        Args:
+            meeting_id: Meeting identifier
+            tracker_data: Question tracker data (dict with sections and Q&A status)
+            conn: Database connection
+        
+        Returns:
+            Dict with success status
+        """
+        db = DatabaseUtils(conn)
+        
+        # Convert to JSON string
+        tracker_str = json.dumps(tracker_data) if isinstance(tracker_data, dict) else tracker_data
+        
+        return db.update_meeting_detail(meeting_id=meeting_id, question_tracker=tracker_str)
     
     # ==================== TRANSCRIPT AGGREGATOR METHODS ====================
     

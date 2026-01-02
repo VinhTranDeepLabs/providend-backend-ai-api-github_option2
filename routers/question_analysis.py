@@ -12,6 +12,7 @@ from models.schemas import (
     QuestionTrackerResponse
 )
 from services.question_service import QuestionService
+from services.meeting_service import MeetingService
 
 router = APIRouter()
 
@@ -124,15 +125,31 @@ async def track_questions(request: QuestionTrackerRequest, conn=Depends(get_conn
     
     - **question_template**: The question template name to use for tracking
     - **transcript**: The conversation transcript to analyze
+    - **meeting_id**: Optional meeting ID to save tracker data
     
     Returns questions organized by section with boolean indicating if answered
     """
     try:
+        meeting_id = getattr(request, 'meeting_id', None)
+        
         sections = QuestionService().track_questions(
             template_name=request.question_template,
             transcript=request.transcript,
             conn=conn
         )
+        
+        # If meeting_id is provided, save the tracker data to database
+        if meeting_id:
+            meeting_service = MeetingService()
+            save_result = meeting_service.update_meeting_tracker(
+                meeting_id=meeting_id,
+                tracker_data=sections,
+                conn=conn
+            )
+            
+            if not save_result.get("success"):
+                # Log the error but still return the tracker data
+                print(f"Warning: Failed to save tracker to database: {save_result.get('message')}")
         
         return QuestionTrackerResponse(
             sections=sections,

@@ -364,17 +364,17 @@ class DatabaseUtils:
     # ==================== MEETING DETAILS OPERATIONS ====================
     
     def create_meeting_detail(self, meeting_id: str, transcript: str = None, summary: str = None,
-                             recommendations: str = None, questions: str = None, 
-                             advisor_notes: str = None) -> Dict:
+                         recommendations: str = None, questions: str = None, 
+                         advisor_notes: str = None, question_tracker: str = None) -> Dict:
         """Create meeting details"""
         try:
             cursor = self.conn.cursor()
             query = """
-                INSERT INTO meeting_details (meeting_id, transcript, summary, recommendations, questions, advisor_notes, updated_datetime)
-                VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                INSERT INTO meeting_details (meeting_id, transcript, summary, recommendations, questions, advisor_notes, question_tracker, updated_datetime)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
                 RETURNING *;
             """
-            cursor.execute(query, (meeting_id, transcript, summary, recommendations, questions, advisor_notes))
+            cursor.execute(query, (meeting_id, transcript, summary, recommendations, questions, advisor_notes, question_tracker))
             result = cursor.fetchone()
             self.conn.commit()
             cursor.close()
@@ -393,23 +393,28 @@ class DatabaseUtils:
             cursor.close()
             
             if result:
-                return {
-                    "meeting_id": result[0],
-                    "transcript": result[1],
-                    "summary": result[2],
-                    "recommendations": result[3],
-                    "questions": result[4],
-                    "advisor_notes": result[5],
-                    "updated_datetime": result[6]
-                }
+                if result:
+                    return {
+                        "meeting_id": result[0],
+                        "transcript": result[1],
+                        "summary": result[2],
+                        "recommendations": result[3],
+                        "questions": result[4],
+                        "advisor_notes": result[5],
+                        "updated_datetime": result[6],
+                        "processing_status": result[7],
+                        "processing_retry_count": result[8],
+                        "processing_error": result[9],
+                        "question_tracker": result[10]
+                    }
             return None
         except Error as e:
             print(f"Error fetching meeting details: {e}")
             return None
     
     def update_meeting_detail(self, meeting_id: str, transcript: str = None, summary: str = None,
-                             recommendations: str = None, questions: str = None,
-                             advisor_notes: str = None) -> Dict:
+                         recommendations: str = None, questions: str = None,
+                         advisor_notes: str = None, question_tracker: str = None) -> Dict:
         """Update meeting details"""
         try:
             cursor = self.conn.cursor()
@@ -431,6 +436,9 @@ class DatabaseUtils:
             if advisor_notes is not None:
                 updates.append("advisor_notes = %s")
                 params.append(advisor_notes)
+            if question_tracker is not None:
+                updates.append("question_tracker = %s")
+                params.append(question_tracker)
             
             if not updates:
                 return {"success": False, "message": "No fields to update"}
@@ -476,6 +484,7 @@ class DatabaseUtils:
             cursor.close()
             
             details = []
+            details = []
             for row in results:
                 details.append({
                     "meeting_id": row[0],
@@ -484,7 +493,8 @@ class DatabaseUtils:
                     "recommendations": row[3],
                     "questions": row[4],
                     "advisor_notes": row[5],
-                    "updated_datetime": row[6]
+                    "question_tracker": row[6],
+                    "updated_datetime": row[7]
                 })
             return details
         except Error as e:
@@ -1024,3 +1034,238 @@ class DatabaseUtils:
         except Error as e:
             print(f"Error counting transcript segments: {e}")
             return 0
+        
+
+    # ==================== MEETING PROCESSING OPERATIONS ====================
+    
+    def get_meetings_for_processing(self, limit: int = 10) -> List[Dict]:
+        """
+        Get meetings ready for AI processing with exponential backoff.
+        
+        Uses existing 'updated_datetime' field to implement backoff without 
+        needing an additional field.
+        
+        Criteria:
+        - meeting.status = 'Completed'
+        - meeting_details.transcript IS NOT NULL
+        - meeting_details.processing_status = 'pending'
+        - Respects exponential backoff for retries using updated_datetime
+        
+        Args:
+            limit: Maximum number of meetings to return
+        
+        Returns:
+            List of meeting dictionaries ready for processing
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Query meetings ready for processing
+            # Uses updated_datetime for exponential backoff:
+            # - retry_count 0: immediate
+            # - retry_count 1: wait 30s since last update
+            # - retry_count 2: wait 60s since last update
+            # - retry_count 3+: already marked as 'failed'
+            query = """
+                SELECT 
+                    m.meeting_id,
+                    m.client_id,
+                    m.advisor_id,
+                    m.meeting_type,
+                    md.transcript,
+                    md.processing_retry_count,
+                    md.updated_datetime
+                FROM meetings m
+                JOIN meeting_details md ON m.meeting_id = md.meeting_id
+                WHERE m.status = 'Completed'
+                  AND md.transcript IS NOT NULL
+                  AND md.processing_status = 'pending'
+                  AND (
+                    md.processing_retry_count = 0
+                    OR md.updated_datetime < NOW() - INTERVAL '1 second' * (30 * POWER(2, md.processing_retry_count - 1))
+                  )
+                ORDER BY m.created_datetime ASC
+                LIMIT %s;
+            """
+            
+            cursor.execute(query, (limit,))
+            results = cursor.fetchall()
+            cursor.close()
+            
+            meetings = []
+            for row in results:
+                meetings.append({
+                    "meeting_id": row[0],
+                    "client_id": row[1],
+                    "advisor_id": row[2],
+                    "meeting_type": row[3],
+                    "transcript": row[4],
+                    "processing_retry_count": row[5],
+                    "updated_datetime": row[6]
+                })
+            
+            return meetings
+            
+        except Error as e:
+            print(f"Error getting meetings for processing: {e}")
+            return []
+    
+    def claim_meeting_for_processing(self, meeting_id: str) -> bool:
+        """
+        Attempt to claim a meeting for processing using optimistic locking.
+        
+        This prevents multiple processor instances from working on the same meeting.
+        Updates updated_datetime automatically via database default.
+        
+        Args:
+            meeting_id: The meeting ID to claim
+        
+        Returns:
+            True if successfully claimed, False if already being processed
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Optimistic lock: only update if still in 'pending' status
+            # updated_datetime will be set to NOW() automatically
+            query = """
+                UPDATE meeting_details
+                SET processing_status = 'processing',
+                    updated_datetime = NOW()
+                WHERE meeting_id = %s
+                  AND processing_status = 'pending'
+                RETURNING meeting_id;
+            """
+            
+            cursor.execute(query, (meeting_id,))
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            
+            # If no rows were updated, another process claimed it
+            if result is None:
+                return False
+            
+            return True
+            
+        except Error as e:
+            self.conn.rollback()
+            print(f"Error claiming meeting for processing: {e}")
+            return False
+    
+    def save_processing_results(self, meeting_id: str, questions: str = None, 
+                               summary: str = None) -> Dict:
+        """
+        Save successful processing results and mark as completed.
+        
+        Args:
+            meeting_id: The meeting ID
+            questions: Autofilled questions JSON string
+            summary: Generated summary text
+        
+        Returns:
+            Dict with success status
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            updates = []
+            params = []
+            
+            if questions is not None:
+                updates.append("questions = %s")
+                params.append(questions)
+            
+            if summary is not None:
+                updates.append("summary = %s")
+                params.append(summary)
+            
+            # Always update processing fields and updated_datetime
+            updates.extend([
+                "processing_status = %s",
+                "processing_error = NULL",
+                "updated_datetime = NOW()"
+            ])
+            params.append("completed")
+            params.append(meeting_id)
+            
+            query = f"""
+                UPDATE meeting_details
+                SET {', '.join(updates)}
+                WHERE meeting_id = %s;
+            """
+            
+            cursor.execute(query, params)
+            self.conn.commit()
+            cursor.close()
+            
+            return {
+                "success": True,
+                "message": "Processing results saved successfully"
+            }
+            
+        except Error as e:
+            self.conn.rollback()
+            return {
+                "success": False,
+                "message": f"Error saving processing results: {e}"
+            }
+    
+    def mark_processing_failed(self, meeting_id: str, error_msg: str, 
+                              retry_count: int, max_retries: int = 3) -> Dict:
+        """
+        Mark processing as failed and handle retry logic.
+        
+        Updates updated_datetime to implement exponential backoff on next retry.
+        
+        Args:
+            meeting_id: The meeting ID
+            error_msg: Error message to store
+            retry_count: Current retry count
+            max_retries: Maximum retries before giving up
+        
+        Returns:
+            Dict with success status and whether to retry
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            new_retry_count = retry_count + 1
+            
+            if new_retry_count >= max_retries:
+                # Give up after max retries
+                status = "failed"
+                message = f"Processing failed after {max_retries} attempts"
+            else:
+                # Set back to pending for retry
+                # updated_datetime = NOW() will be used for backoff calculation
+                status = "pending"
+                message = f"Processing failed, will retry (attempt {new_retry_count + 1}/{max_retries})"
+            
+            query = """
+                UPDATE meeting_details
+                SET processing_status = %s,
+                    processing_retry_count = %s,
+                    processing_error = %s,
+                    updated_datetime = NOW()
+                WHERE meeting_id = %s;
+            """
+            
+            cursor.execute(query, (status, new_retry_count, error_msg, meeting_id))
+            self.conn.commit()
+            cursor.close()
+            
+            return {
+                "success": True,
+                "message": message,
+                "will_retry": status == "pending",
+                "retry_count": new_retry_count
+            }
+            
+        except Error as e:
+            self.conn.rollback()
+            return {
+                "success": False,
+                "message": f"Error marking processing as failed: {e}",
+                "will_retry": False
+            }

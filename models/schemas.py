@@ -118,6 +118,7 @@ class ClientRecommendationResponse(BaseModel):
 class QuestionTrackerRequest(BaseModel):
     question_template: str = Field(..., description="The question template name to use for tracking")
     transcript: str = Field(..., description="The conversation transcript to analyze")
+    meeting_id: Optional[str] = Field(None, description="Optional meeting ID to save tracker data")
 
 class QuestionTrackerResponse(BaseModel):
     sections: Dict[str, Dict[str, bool]] = Field(
@@ -125,6 +126,15 @@ class QuestionTrackerResponse(BaseModel):
         description="Questions organized by section with boolean indicating if answered"
     )
     success: bool = True
+
+class GetQuestionTrackerResponse(BaseModel):
+    """Response for GET /meeting/{meeting_id}/tracker endpoint"""
+    success: bool = True
+    meeting_id: str = Field(..., description="The meeting ID")
+    tracker: Dict[str, Dict[str, bool]] = Field(
+        ..., 
+        description="Question tracker data organized by sections"
+    )
 
 class GenerateSummaryRequest(BaseModel):
     transcript: str = Field(..., description="The meeting transcript to summarize")
