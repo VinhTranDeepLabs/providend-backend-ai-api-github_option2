@@ -70,22 +70,88 @@ async def create_meeting(
 
 
 @router.post("/{meeting_id}/end")
-async def get_meeting_details(meeting_id: str, conn=Depends(get_conn)):
+async def end_meeting(meeting_id: str, conn=Depends(get_conn)):
     """
-    End a meeting
-
+    End a meeting and aggregate transcript segments
+    
+    This endpoint:
+    1. Attempts to aggregate transcript segments (up to 3 retries on failure)
+    2. Updates meeting status to "Completed" regardless of aggregation result
+    3. Allows meetings to end even if there are no transcript segments
+    
     Args:
         meeting_id: the Meeting ID
-
+    
     Returns:
-        meeting ended message
+        Detailed response about aggregation and status update
     """
-    result = meeting_service.update_meeting_status(meeting_id, "Completed", conn=conn)
-    if result["success"]:
-        message = "meeting ended successfully"
+    # Try to aggregate transcript segments (with retries)
+    max_retries = 3
+    aggregation_success = False
+    segment_count = 0
+    aggregation_error = None
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            # Attempt aggregation
+            agg_result = meeting_service.aggregate_meeting_transcripts(
+                meeting_id=meeting_id,
+                separator="\n",
+                save_to_details=True,
+                conn=conn
+            )
+            
+            if agg_result.get("success"):
+                aggregation_success = True
+                segment_count = agg_result.get("segment_count", 0)
+                break
+            else:
+                # Check if it's just "no segments" (which is acceptable)
+                error_msg = agg_result.get("message", "")
+                if "No transcript segments found" in error_msg:
+                    # No segments is acceptable - not an error
+                    aggregation_success = True
+                    segment_count = 0
+                    break
+                else:
+                    # Actual error - retry if attempts remaining
+                    aggregation_error = error_msg
+                    if attempt < max_retries:
+                        continue  # Retry
+                    
+        except Exception as e:
+            # Exception occurred - retry if attempts remaining
+            aggregation_error = str(e)
+            if attempt < max_retries:
+                continue  # Retry
+    
+    # If aggregation ultimately failed after all retries
+    if not aggregation_success:
+        aggregation_error = "Unable to get transcript segments"
+    
+    # Update meeting status to Completed regardless of aggregation result
+    status_result = meeting_service.update_meeting_status(
+        meeting_id, 
+        "Completed", 
+        conn=conn
+    )
+    
+    # Build response
+    if status_result.get("success"):
+        return {
+            "success": True,
+            "message": "Meeting ended successfully",
+            "meeting_id": meeting_id,
+            "transcript_aggregated": aggregation_success,
+            "segment_count": segment_count,
+            "status_updated": True,
+            "aggregation_error": aggregation_error if not aggregation_success else None
+        }
     else:
-        message = "failed to end meeting"
-    return message
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update meeting status: {status_result.get('message', 'Unknown error')}"
+        )
 
 
 @router.get("/{meeting_id}")
