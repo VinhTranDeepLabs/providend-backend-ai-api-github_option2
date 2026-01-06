@@ -1,3 +1,5 @@
+import re
+from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import json
@@ -226,10 +228,201 @@ class MeetingService:
 
     # ==================== TRANSCRIPT MANAGEMENT ====================
     
+    def _extract_original_text(self, marked_up_text: str) -> str:
+        """
+        Extract original text by removing all <del> tags.
+        
+        Args:
+            marked_up_text: Text with HTML markup
+        
+        Returns:
+            Clean text without <del> tags
+        """
+        if not marked_up_text:
+            return ""
+        
+        # Remove <del>...</del> tags but keep the content inside
+        clean_text = re.sub(r'<del>(.*?)</del>', r'\1', marked_up_text, flags=re.DOTALL)
+        
+        # Ensure we're not double-escaping
+        # The text should remain as-is without additional escaping
+        return clean_text
+
+
+    def _normalize_whitespace(self, text: str) -> str:
+        """
+        Normalize whitespace for consistent comparison.
+        Preserves newlines but normalizes other whitespace.
+        
+        Args:
+            text: Input text
+        
+        Returns:
+            Text with normalized whitespace
+        """
+        # Split by newlines to preserve them
+        lines = text.split('\n')
+        # Normalize spaces within each line
+        normalized_lines = [' '.join(line.split()) for line in lines]
+        # Rejoin with newlines
+        return '\n'.join(normalized_lines)
+
+
+    def _generate_diff_markup(self, original_text: str, new_text: str) -> str:
+        """
+        Generate word-level diff markup with <del> tags for deletions.
+        Combines consecutive deleted words into a single <del> tag.
+        
+        Args:
+            original_text: The original transcript (clean, no markup)
+            new_text: The new incoming transcript
+        
+        Returns:
+            Marked-up text with <del> tags for deleted words
+        """
+        # Normalize whitespace to prevent issues with extra spaces
+        original_text = self._normalize_whitespace(original_text)
+        new_text = self._normalize_whitespace(new_text)
+        
+        # Split into words, preserving newlines as separate tokens
+        def tokenize(text):
+            """Split text into words and newlines."""
+            tokens = []
+            for line in text.split('\n'):
+                words = line.split()
+                tokens.extend(words)
+                tokens.append('\n')  # Add newline as a token
+            # Remove trailing newline if present
+            if tokens and tokens[-1] == '\n':
+                tokens.pop()
+            return tokens
+        
+        original_tokens = tokenize(original_text)
+        new_tokens = tokenize(new_text)
+        
+        # Use SequenceMatcher for token-level diff
+        matcher = SequenceMatcher(None, original_tokens, new_tokens)
+        
+        result = []
+        deleted_buffer = []  # Buffer to accumulate consecutive deleted tokens
+        
+        def flush_deleted_buffer():
+            """Helper to flush accumulated deleted tokens."""
+            if deleted_buffer:
+                # Join tokens, handling newlines properly
+                deleted_text = []
+                for token in deleted_buffer:
+                    if token == '\n':
+                        deleted_text.append('\n')
+                    else:
+                        deleted_text.append(token)
+                
+                # Join with spaces, but preserve newlines
+                text_parts = []
+                current_line = []
+                for token in deleted_buffer:
+                    if token == '\n':
+                        if current_line:
+                            text_parts.append(' '.join(current_line))
+                        text_parts.append('\n')
+                        current_line = []
+                    else:
+                        current_line.append(token)
+                if current_line:
+                    text_parts.append(' '.join(current_line))
+                
+                deleted_str = ''.join(text_parts)
+                result.append(f'<del>{deleted_str}</del>')
+                deleted_buffer.clear()
+        
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == 'equal':
+                # Flush any pending deletions first
+                flush_deleted_buffer()
+                # Tokens are the same, add them normally
+                result.extend(new_tokens[j1:j2])
+            
+            elif tag == 'replace':
+                # Tokens were replaced
+                # Add original tokens to deletion buffer
+                deleted_buffer.extend(original_tokens[i1:i2])
+                # Flush deletions
+                flush_deleted_buffer()
+                # Add new tokens normally
+                result.extend(new_tokens[j1:j2])
+            
+            elif tag == 'delete':
+                # Tokens were deleted from original
+                # Add to deletion buffer
+                deleted_buffer.extend(original_tokens[i1:i2])
+            
+            elif tag == 'insert':
+                # Flush any pending deletions first
+                flush_deleted_buffer()
+                # Tokens were added (not in original)
+                # Add new tokens normally (no markup)
+                result.extend(new_tokens[j1:j2])
+        
+        # Flush any remaining deletions at the end
+        flush_deleted_buffer()
+        
+        # Reconstruct text from tokens, preserving newlines
+        output_parts = []
+        current_line = []
+        for token in result:
+            if token == '\n':
+                if current_line:
+                    output_parts.append(' '.join(current_line))
+                output_parts.append('\n')
+                current_line = []
+            elif token.startswith('<del>'):
+                # Add deletion marker as-is
+                if current_line:
+                    output_parts.append(' '.join(current_line))
+                    current_line = []
+                output_parts.append(token)
+            else:
+                current_line.append(token)
+        
+        if current_line:
+            output_parts.append(' '.join(current_line))
+        
+        return ''.join(output_parts)
+
+
     def update_meeting_transcript(self, meeting_id: str, transcript: str, conn=None) -> Dict[str, Any]:
-        """Update transcript in meeting_details"""
+        """
+        Update transcript in meeting_details with diff tracking.
+        
+        Compares new transcript with original and marks deletions with <del> tags.
+        
+        Args:
+            meeting_id: Meeting identifier
+            transcript: New transcript content (unescaped, raw string)
+            conn: Database connection
+        
+        Returns:
+            Dict with success status
+        """
         db = DatabaseUtils(conn)
-        return db.update_meeting_detail(meeting_id=meeting_id, transcript=transcript)
+        
+        # Get existing meeting details
+        details = self.get_meeting_detail(meeting_id, conn)
+        
+        if not details or not details.get("transcript"):
+            # First time saving transcript - save as-is, no markup
+            return db.update_meeting_detail(meeting_id=meeting_id, transcript=transcript)
+        
+        # Extract original transcript by removing <del> tags
+        existing_transcript = details.get("transcript")
+        original_transcript = self._extract_original_text(existing_transcript)
+        
+        # Generate diff markup (compare new with original)
+        marked_up_transcript = self._generate_diff_markup(original_transcript, transcript)
+        
+        # Save marked-up transcript (psycopg2 handles escaping automatically)
+        return db.update_meeting_detail(meeting_id=meeting_id, transcript=marked_up_transcript)
+    
 
     def append_to_transcript(self, meeting_id: str, new_content: str, conn=None) -> Dict[str, Any]:
         """Append content to existing transcript"""
@@ -243,13 +436,42 @@ class MeetingService:
         updated_transcript = existing_transcript + "\n" + new_content if existing_transcript else new_content
         
         return self.update_meeting_transcript(meeting_id, updated_transcript, conn)
+    
 
     # ==================== SUMMARY & RECOMMENDATIONS ====================
     
     def update_meeting_summary(self, meeting_id: str, summary: str, conn=None) -> Dict[str, Any]:
-        """Update summary in meeting_details"""
+        """
+        Update summary in meeting_details with diff tracking.
+        
+        Compares new summary with original and marks deletions with <del> tags.
+        
+        Args:
+            meeting_id: Meeting identifier
+            summary: New summary content
+            conn: Database connection
+        
+        Returns:
+            Dict with success status
+        """
         db = DatabaseUtils(conn)
-        return db.update_meeting_detail(meeting_id=meeting_id, summary=summary)
+        
+        # Get existing meeting details
+        details = self.get_meeting_detail(meeting_id, conn)
+        
+        if not details or not details.get("summary"):
+            # First time saving summary - save as-is, no markup
+            return db.update_meeting_detail(meeting_id=meeting_id, summary=summary)
+        
+        # Extract original summary by removing <del> tags
+        existing_summary = details.get("summary")
+        original_summary = self._extract_original_text(existing_summary)
+        
+        # Generate diff markup (compare new with original)
+        marked_up_summary = self._generate_diff_markup(original_summary, summary)
+        
+        # Save marked-up summary (psycopg2 handles escaping automatically)
+        return db.update_meeting_detail(meeting_id=meeting_id, summary=marked_up_summary)
 
     def update_meeting_recommendations(self, meeting_id: str, recommendations: str, conn=None) -> Dict[str, Any]:
         """Update recommendations in meeting_details"""

@@ -1154,7 +1154,7 @@ class DatabaseUtils:
             return False
     
     def save_processing_results(self, meeting_id: str, questions: str = None, 
-                               summary: str = None) -> Dict:
+                               summary: str = None, recommendations: str = None) -> Dict:
         """
         Save successful processing results and mark as completed.
         
@@ -1162,6 +1162,7 @@ class DatabaseUtils:
             meeting_id: The meeting ID
             questions: Autofilled questions JSON string
             summary: Generated summary text
+            recommendations: Product recommendations JSON string
         
         Returns:
             Dict with success status
@@ -1179,6 +1180,10 @@ class DatabaseUtils:
             if summary is not None:
                 updates.append("summary = %s")
                 params.append(summary)
+
+            if recommendations is not None:
+                updates.append("recommendations = %s")
+                params.append(recommendations)
             
             # Always update processing fields and updated_datetime
             updates.extend([

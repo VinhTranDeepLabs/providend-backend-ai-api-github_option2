@@ -17,6 +17,8 @@ def get_conn(request: Request):
     return conn
 
 
+# ==================== POST METHODS ====================
+
 @router.post("/create")
 async def create_meeting(
     client_id: str,
@@ -154,6 +156,124 @@ async def end_meeting(meeting_id: str, conn=Depends(get_conn)):
         )
 
 
+@router.post("/{meeting_id}/transcript/aggregate")
+async def aggregate_meeting_transcripts(
+    meeting_id: str,
+    separator: str = "\n",
+    save_to_details: bool = True,
+    conn=Depends(get_conn)
+):
+    """
+    Aggregate all transcript segments into a single transcript.
+    
+    Args:
+        meeting_id: The meeting ID
+        separator: String to join segments (default: newline)
+        save_to_details: If True, save to meeting_details.transcript (default: True)
+    
+    Returns:
+        Aggregated transcript
+    """
+    result = meeting_service.aggregate_meeting_transcripts(
+        meeting_id=meeting_id,
+        separator=separator,
+        save_to_details=save_to_details,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to aggregate transcripts")
+        )
+    
+    return result
+
+
+@router.post("/{meeting_id}/transcript/segment")
+async def add_transcript_segment(
+    meeting_id: str,
+    transcript: str,
+    start_datetime: Optional[datetime] = None,
+    conn=Depends(get_conn)
+):
+    """
+    Add a transcript segment to the meeting.
+    
+    Args:
+        meeting_id: The meeting ID
+        transcript: Transcript text segment
+        start_datetime: When this segment was captured (optional, defaults to NOW)
+    
+    Returns:
+        Confirmation with segment index
+    """
+    result = meeting_service.add_transcript_segment(
+        meeting_id=meeting_id,
+        transcript=transcript,
+        start_datetime=start_datetime,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to add transcript segment")
+        )
+    
+    return {
+        "success": True,
+        "message": "Transcript segment added successfully",
+        "meeting_id": meeting_id,
+        "segment_index": result.get("segment_index"),
+        "start_datetime": result.get("start_datetime")
+    }
+
+
+# ==================== GET METHODS ====================
+
+@router.get("/advisor/{advisor_id}/list")
+async def list_advisor_meetings(advisor_id: str, conn=Depends(get_conn)):
+    """
+    List all meetings for a specific advisor.
+    
+    Args:
+        advisor_id: The advisor ID
+    
+    Returns:
+        List of meetings for the advisor
+    """
+    meetings = meeting_service.list_meetings_by_advisor(advisor_id, conn=conn)
+    
+    return {
+        "success": True,
+        "advisor_id": advisor_id,
+        "total_meetings": len(meetings),
+        "meetings": meetings
+    }
+
+
+@router.get("/client/{client_id}/list")
+async def list_client_meetings(client_id: str, conn=Depends(get_conn)):
+    """
+    List all meetings for a specific client.
+    
+    Args:
+        client_id: The client ID
+    
+    Returns:
+        List of meetings for the client
+    """
+    meetings = meeting_service.list_meetings_by_client(client_id, conn=conn)
+    
+    return {
+        "success": True,
+        "client_id": client_id,
+        "total_meetings": len(meetings),
+        "meetings": meetings
+    }
+
+
 @router.get("/{meeting_id}")
 async def get_meeting_details(meeting_id: str, conn=Depends(get_conn)):
     """
@@ -204,97 +324,271 @@ async def get_meeting_basic(meeting_id: str, conn=Depends(get_conn)):
     }
 
 
-@router.patch("/{meeting_id}/status")
-async def update_meeting_status(
-    meeting_id: str,
-    new_status: str,
-    conn=Depends(get_conn)
-):
+@router.get("/{meeting_id}/questions")
+async def get_meeting_questions(meeting_id: str, conn=Depends(get_conn)):
     """
-    Update meeting status.
+    Get questions for a meeting.
     
     Args:
         meeting_id: The meeting ID
-        new_status: The new status (e.g., "Started", "In Progress", "Completed", "Cancelled")
     
     Returns:
-        Update confirmation
+        Questions data
     """
-    result = meeting_service.update_meeting_status(meeting_id, new_status, conn=conn)
+    questions = meeting_service.get_meeting_questions(meeting_id, conn=conn)
     
-    if not result.get("success"):
+    if questions is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message", "Failed to update meeting status")
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No questions found for this meeting"
         )
     
     return {
         "success": True,
-        "message": f"Meeting status updated to '{new_status}'",
         "meeting_id": meeting_id,
-        "status": new_status
+        "questions": questions
     }
 
 
-@router.patch("/{meeting_id}/type")
-async def update_meeting_type(
-    meeting_id: str,
-    meeting_type: str,
-    conn=Depends(get_conn)
-):
+@router.get("/{meeting_id}/transcript")
+async def get_meeting_transcript(meeting_id: str, conn=Depends(get_conn)):
     """
-    Update meeting type.
+    Get transcript for a meeting.
     
     Args:
         meeting_id: The meeting ID
-        meeting_type: The new meeting type
     
     Returns:
-        Update confirmation
+        Meeting transcript
     """
-    result = meeting_service.update_meeting_type(meeting_id, meeting_type, conn=conn)
+    details = meeting_service.get_meeting_detail(meeting_id, conn=conn)
     
-    if not result.get("success"):
+    if details is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message", "Failed to update meeting type")
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting not found"
+        )
+    
+    transcript = details.get("transcript")
+    
+    if transcript is None or not transcript.strip():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No transcript found for this meeting"
         )
     
     return {
         "success": True,
-        "message": "Meeting type updated successfully",
         "meeting_id": meeting_id,
-        "meeting_type": meeting_type
+        "transcript": transcript
     }
 
 
-@router.delete("/{meeting_id}")
-async def delete_meeting(meeting_id: str, conn=Depends(get_conn)):
+@router.get("/{meeting_id}/summary")
+async def get_meeting_summary(meeting_id: str, conn=Depends(get_conn)):
     """
-    Delete a meeting (and its details via cascade).
+    Get summary for a meeting.
     
     Args:
-        meeting_id: The meeting ID to delete
+        meeting_id: The meeting ID
     
     Returns:
-        Deletion confirmation
+        Meeting summary
     """
-    result = meeting_service.delete_meeting(meeting_id, conn=conn)
+    details = meeting_service.get_meeting_detail(meeting_id, conn=conn)
     
-    if not result.get("success"):
+    if details is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message", "Failed to delete meeting")
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting not found"
+        )
+    
+    summary = details.get("summary")
+    
+    if summary is None or not summary.strip():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No summary found for this meeting"
         )
     
     return {
         "success": True,
-        "message": "Meeting deleted successfully",
-        "meeting_id": meeting_id
+        "meeting_id": meeting_id,
+        "summary": summary
     }
 
 
-# ==================== MEETING DETAILS ENDPOINTS ====================
+@router.get("/{meeting_id}/recommendations")
+async def get_meeting_recommendations(meeting_id: str, conn=Depends(get_conn)):
+    """
+    Get recommendations for a meeting.
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        Meeting recommendations
+    """
+    details = meeting_service.get_meeting_detail(meeting_id, conn=conn)
+    
+    if details is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting not found"
+        )
+    
+    recommendations = details.get("recommendations")
+    
+    if recommendations is None or not recommendations.strip():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No recommendations found for this meeting"
+        )
+    
+    return {
+        "success": True,
+        "meeting_id": meeting_id,
+        "recommendations": recommendations
+    }
+
+
+@router.get("/{meeting_id}/tracker", response_model=GetQuestionTrackerResponse)
+async def get_meeting_tracker(meeting_id: str, conn=Depends(get_conn)):
+    """
+    Get question tracker for a meeting.
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        Question tracker data with sections and answered status
+    """
+    tracker = meeting_service.get_meeting_tracker(meeting_id, conn=conn)
+    
+    if tracker is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No question tracker found for this meeting"
+        )
+    
+    return GetQuestionTrackerResponse(
+        success=True,
+        meeting_id=meeting_id,
+        tracker=tracker
+    )
+
+
+@router.get("/{meeting_id}/transcript/count")
+async def count_transcript_segments(meeting_id: str, conn=Depends(get_conn)):
+    """
+    Count the number of transcript segments for a meeting.
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        Segment count
+    """
+    count = meeting_service.count_transcript_segments(meeting_id, conn=conn)
+    
+    return {
+        "success": True,
+        "meeting_id": meeting_id,
+        "segment_count": count
+    }
+
+
+@router.get("/{meeting_id}/transcript/segments")
+async def get_transcript_segments(meeting_id: str, conn=Depends(get_conn)):
+    """
+    Get all transcript segments for a meeting.
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        List of transcript segments ordered by index
+    """
+    segments = meeting_service.get_transcript_segments(meeting_id, conn=conn)
+    
+    return {
+        "success": True,
+        "meeting_id": meeting_id,
+        "total_segments": len(segments),
+        "segments": segments
+    }
+
+
+@router.get("/{meeting_id}/transcript/segments/range")
+async def get_transcript_segments_by_time(
+    meeting_id: str,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    conn=Depends(get_conn)
+):
+    """
+    Get transcript segments within a time range.
+    
+    Args:
+        meeting_id: The meeting ID
+        start_time: Start datetime (optional)
+        end_time: End datetime (optional)
+    
+    Returns:
+        List of transcript segments within time range
+    """
+    segments = meeting_service.get_transcript_segments_by_time(
+        meeting_id=meeting_id,
+        start_time=start_time,
+        end_time=end_time,
+        conn=conn
+    )
+    
+    return {
+        "success": True,
+        "meeting_id": meeting_id,
+        "start_time": start_time,
+        "end_time": end_time,
+        "total_segments": len(segments),
+        "segments": segments
+    }
+
+
+@router.get("/{meeting_id}/transcript/segments/{segment_index}")
+async def get_transcript_segment_by_index(
+    meeting_id: str,
+    segment_index: int,
+    conn=Depends(get_conn)
+):
+    """
+    Get a specific transcript segment by its index.
+    
+    Args:
+        meeting_id: The meeting ID
+        segment_index: The segment index
+    
+    Returns:
+        Transcript segment
+    """
+    segment = meeting_service.get_transcript_segment_by_index(
+        meeting_id=meeting_id,
+        segment_index=segment_index,
+        conn=conn
+    )
+    
+    if segment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transcript segment not found"
+        )
+    
+    return {
+        "success": True,
+        "segment": segment
+    }
+
+
+# ==================== PATCH METHODS ====================
 
 @router.patch("/{meeting_id}/details")
 async def update_meeting_details(
@@ -354,104 +648,6 @@ async def update_meeting_details(
     }
 
 
-@router.patch("/{meeting_id}/transcript")
-async def update_meeting_transcript(
-    meeting_id: str,
-    transcript: str,
-    append: bool = False,
-    conn=Depends(get_conn)
-):
-    """
-    Update or append to meeting transcript.
-    
-    Args:
-        meeting_id: The meeting ID
-        transcript: Transcript content
-        append: If True, append to existing transcript; if False, replace (default: False)
-    
-    Returns:
-        Update confirmation
-    """
-    if append:
-        result = meeting_service.append_to_transcript(meeting_id, transcript, conn=conn)
-    else:
-        result = meeting_service.update_meeting_transcript(meeting_id, transcript, conn=conn)
-    
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message", "Failed to update transcript")
-        )
-    
-    return {
-        "success": True,
-        "message": "Transcript updated successfully" if not append else "Transcript appended successfully",
-        "meeting_id": meeting_id
-    }
-
-
-@router.patch("/{meeting_id}/summary")
-async def update_meeting_summary(
-    meeting_id: str,
-    summary: str,
-    conn=Depends(get_conn)
-):
-    """
-    Update meeting summary.
-    
-    Args:
-        meeting_id: The meeting ID
-        summary: Summary content
-    
-    Returns:
-        Update confirmation
-    """
-    result = meeting_service.update_meeting_summary(meeting_id, summary, conn=conn)
-    
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message", "Failed to update summary")
-        )
-    
-    return {
-        "success": True,
-        "message": "Summary updated successfully",
-        "meeting_id": meeting_id
-    }
-
-
-@router.patch("/{meeting_id}/recommendations")
-async def update_meeting_recommendations(
-    meeting_id: str,
-    recommendations: str,
-    conn=Depends(get_conn)
-):
-    """
-    Update meeting recommendations.
-    
-    Args:
-        meeting_id: The meeting ID
-        recommendations: Recommendations content
-    
-    Returns:
-        Update confirmation
-    """
-    result = meeting_service.update_meeting_recommendations(meeting_id, recommendations, conn=conn)
-    
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message", "Failed to update recommendations")
-        )
-    
-    return {
-        "success": True,
-        "message": "Recommendations updated successfully",
-        "meeting_id": meeting_id
-    }
-
-
 @router.patch("/{meeting_id}/notes")
 async def update_advisor_notes(
     meeting_id: str,
@@ -480,34 +676,6 @@ async def update_advisor_notes(
         "success": True,
         "message": "Advisor notes updated successfully",
         "meeting_id": meeting_id
-    }
-
-
-# ==================== QUESTIONS MANAGEMENT ====================
-
-@router.get("/{meeting_id}/questions")
-async def get_meeting_questions(meeting_id: str, conn=Depends(get_conn)):
-    """
-    Get questions for a meeting.
-    
-    Args:
-        meeting_id: The meeting ID
-    
-    Returns:
-        Questions data
-    """
-    questions = meeting_service.get_meeting_questions(meeting_id, conn=conn)
-    
-    if questions is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No questions found for this meeting"
-        )
-    
-    return {
-        "success": True,
-        "meeting_id": meeting_id,
-        "questions": questions
     }
 
 
@@ -542,32 +710,6 @@ async def update_meeting_questions(
     }
 
 
-@router.get("/{meeting_id}/tracker", response_model=GetQuestionTrackerResponse)
-async def get_meeting_tracker(meeting_id: str, conn=Depends(get_conn)):
-    """
-    Get question tracker for a meeting.
-    
-    Args:
-        meeting_id: The meeting ID
-    
-    Returns:
-        Question tracker data with sections and answered status
-    """
-    tracker = meeting_service.get_meeting_tracker(meeting_id, conn=conn)
-    
-    if tracker is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No question tracker found for this meeting"
-        )
-    
-    return GetQuestionTrackerResponse(
-        success=True,
-        meeting_id=meeting_id,
-        tracker=tracker
-    )
-
-
 @router.patch("/{meeting_id}/questions/status")
 async def update_question_status(
     meeting_id: str,
@@ -600,214 +742,134 @@ async def update_question_status(
     }
 
 
-# ==================== LIST ENDPOINTS ====================
-
-@router.get("/client/{client_id}/list")
-async def list_client_meetings(client_id: str, conn=Depends(get_conn)):
+@router.patch("/{meeting_id}/recommendations")
+async def update_meeting_recommendations(
+    meeting_id: str,
+    recommendations: str,
+    conn=Depends(get_conn)
+):
     """
-    List all meetings for a specific client.
+    Update meeting recommendations.
     
     Args:
-        client_id: The client ID
+        meeting_id: The meeting ID
+        recommendations: Recommendations content
     
     Returns:
-        List of meetings for the client
+        Update confirmation
     """
-    meetings = meeting_service.list_meetings_by_client(client_id, conn=conn)
+    result = meeting_service.update_meeting_recommendations(meeting_id, recommendations, conn=conn)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to update recommendations")
+        )
     
     return {
         "success": True,
-        "client_id": client_id,
-        "total_meetings": len(meetings),
-        "meetings": meetings
+        "message": "Recommendations updated successfully",
+        "meeting_id": meeting_id
     }
 
 
-@router.get("/advisor/{advisor_id}/list")
-async def list_advisor_meetings(advisor_id: str, conn=Depends(get_conn)):
+@router.patch("/{meeting_id}/status")
+async def update_meeting_status(
+    meeting_id: str,
+    new_status: str,
+    conn=Depends(get_conn)
+):
     """
-    List all meetings for a specific advisor.
+    Update meeting status.
     
     Args:
-        advisor_id: The advisor ID
+        meeting_id: The meeting ID
+        new_status: The new status (e.g., "Started", "In Progress", "Completed", "Cancelled")
     
     Returns:
-        List of meetings for the advisor
+        Update confirmation
     """
-    meetings = meeting_service.list_meetings_by_advisor(advisor_id, conn=conn)
+    result = meeting_service.update_meeting_status(meeting_id, new_status, conn=conn)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to update meeting status")
+        )
     
     return {
         "success": True,
-        "advisor_id": advisor_id,
-        "total_meetings": len(meetings),
-        "meetings": meetings
+        "message": f"Meeting status updated to '{new_status}'",
+        "meeting_id": meeting_id,
+        "status": new_status
     }
 
 
-# ==================== TRANSCRIPT AGGREGATOR ENDPOINTS ====================
+@router.patch("/{meeting_id}/summary")
+async def update_meeting_summary(
+    meeting_id: str,
+    summary: str,
+    conn=Depends(get_conn)
+):
+    """
+    Update meeting summary.
+    
+    Args:
+        meeting_id: The meeting ID
+        summary: Summary content
+    
+    Returns:
+        Update confirmation
+    """
+    result = meeting_service.update_meeting_summary(meeting_id, summary, conn=conn)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to update summary")
+        )
+    
+    return {
+        "success": True,
+        "message": "Summary updated successfully",
+        "meeting_id": meeting_id
+    }
 
-@router.post("/{meeting_id}/transcript/segment")
-async def add_transcript_segment(
+
+@router.patch("/{meeting_id}/transcript")
+async def update_meeting_transcript(
     meeting_id: str,
     transcript: str,
-    start_datetime: Optional[datetime] = None,
+    append: bool = False,
     conn=Depends(get_conn)
 ):
     """
-    Add a transcript segment to the meeting.
+    Update or append to meeting transcript.
     
     Args:
         meeting_id: The meeting ID
-        transcript: Transcript text segment
-        start_datetime: When this segment was captured (optional, defaults to NOW)
+        transcript: Transcript content
+        append: If True, append to existing transcript; if False, replace (default: False)
     
     Returns:
-        Confirmation with segment index
+        Update confirmation
     """
-    result = meeting_service.add_transcript_segment(
-        meeting_id=meeting_id,
-        transcript=transcript,
-        start_datetime=start_datetime,
-        conn=conn
-    )
+    if append:
+        result = meeting_service.append_to_transcript(meeting_id, transcript, conn=conn)
+    else:
+        result = meeting_service.update_meeting_transcript(meeting_id, transcript, conn=conn)
     
     if not result.get("success"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message", "Failed to add transcript segment")
+            detail=result.get("message", "Failed to update transcript")
         )
     
     return {
         "success": True,
-        "message": "Transcript segment added successfully",
-        "meeting_id": meeting_id,
-        "segment_index": result.get("segment_index"),
-        "start_datetime": result.get("start_datetime")
+        "message": "Transcript updated successfully" if not append else "Transcript appended successfully",
+        "meeting_id": meeting_id
     }
-
-
-@router.get("/{meeting_id}/transcript/segments")
-async def get_transcript_segments(meeting_id: str, conn=Depends(get_conn)):
-    """
-    Get all transcript segments for a meeting.
-    
-    Args:
-        meeting_id: The meeting ID
-    
-    Returns:
-        List of transcript segments ordered by index
-    """
-    segments = meeting_service.get_transcript_segments(meeting_id, conn=conn)
-    
-    return {
-        "success": True,
-        "meeting_id": meeting_id,
-        "total_segments": len(segments),
-        "segments": segments
-    }
-
-
-@router.get("/{meeting_id}/transcript/segments/{segment_index}")
-async def get_transcript_segment_by_index(
-    meeting_id: str,
-    segment_index: int,
-    conn=Depends(get_conn)
-):
-    """
-    Get a specific transcript segment by its index.
-    
-    Args:
-        meeting_id: The meeting ID
-        segment_index: The segment index
-    
-    Returns:
-        Transcript segment
-    """
-    segment = meeting_service.get_transcript_segment_by_index(
-        meeting_id=meeting_id,
-        segment_index=segment_index,
-        conn=conn
-    )
-    
-    if segment is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Transcript segment not found"
-        )
-    
-    return {
-        "success": True,
-        "segment": segment
-    }
-
-
-@router.get("/{meeting_id}/transcript/segments/range")
-async def get_transcript_segments_by_time(
-    meeting_id: str,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    conn=Depends(get_conn)
-):
-    """
-    Get transcript segments within a time range.
-    
-    Args:
-        meeting_id: The meeting ID
-        start_time: Start datetime (optional)
-        end_time: End datetime (optional)
-    
-    Returns:
-        List of transcript segments within time range
-    """
-    segments = meeting_service.get_transcript_segments_by_time(
-        meeting_id=meeting_id,
-        start_time=start_time,
-        end_time=end_time,
-        conn=conn
-    )
-    
-    return {
-        "success": True,
-        "meeting_id": meeting_id,
-        "start_time": start_time,
-        "end_time": end_time,
-        "total_segments": len(segments),
-        "segments": segments
-    }
-
-
-@router.post("/{meeting_id}/transcript/aggregate")
-async def aggregate_meeting_transcripts(
-    meeting_id: str,
-    separator: str = "\n",
-    save_to_details: bool = True,
-    conn=Depends(get_conn)
-):
-    """
-    Aggregate all transcript segments into a single transcript.
-    
-    Args:
-        meeting_id: The meeting ID
-        separator: String to join segments (default: newline)
-        save_to_details: If True, save to meeting_details.transcript (default: True)
-    
-    Returns:
-        Aggregated transcript
-    """
-    result = meeting_service.aggregate_meeting_transcripts(
-        meeting_id=meeting_id,
-        separator=separator,
-        save_to_details=save_to_details,
-        conn=conn
-    )
-    
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message", "Failed to aggregate transcripts")
-        )
-    
-    return result
 
 
 @router.patch("/{meeting_id}/transcript/segments/{segment_index}")
@@ -852,6 +914,93 @@ async def update_transcript_segment(
     }
 
 
+@router.patch("/{meeting_id}/type")
+async def update_meeting_type(
+    meeting_id: str,
+    meeting_type: str,
+    conn=Depends(get_conn)
+):
+    """
+    Update meeting type.
+    
+    Args:
+        meeting_id: The meeting ID
+        meeting_type: The new meeting type
+    
+    Returns:
+        Update confirmation
+    """
+    result = meeting_service.update_meeting_type(meeting_id, meeting_type, conn=conn)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to update meeting type")
+        )
+    
+    return {
+        "success": True,
+        "message": "Meeting type updated successfully",
+        "meeting_id": meeting_id,
+        "meeting_type": meeting_type
+    }
+
+
+# ==================== DELETE METHODS ====================
+
+@router.delete("/{meeting_id}")
+async def delete_meeting(meeting_id: str, conn=Depends(get_conn)):
+    """
+    Delete a meeting (and its details via cascade).
+    
+    Args:
+        meeting_id: The meeting ID to delete
+    
+    Returns:
+        Deletion confirmation
+    """
+    result = meeting_service.delete_meeting(meeting_id, conn=conn)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to delete meeting")
+        )
+    
+    return {
+        "success": True,
+        "message": "Meeting deleted successfully",
+        "meeting_id": meeting_id
+    }
+
+
+@router.delete("/{meeting_id}/transcript/segments")
+async def delete_all_transcript_segments(meeting_id: str, conn=Depends(get_conn)):
+    """
+    Delete ALL transcript segments for a meeting.
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        Deletion confirmation with count
+    """
+    result = meeting_service.delete_transcript_segments(meeting_id, conn=conn)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to delete transcript segments")
+        )
+    
+    return {
+        "success": True,
+        "message": result.get("message"),
+        "meeting_id": meeting_id,
+        "deleted_count": result.get("deleted_count", 0)
+    }
+
+
 @router.delete("/{meeting_id}/transcript/segments/{segment_index}")
 async def delete_transcript_segment(
     meeting_id: str,
@@ -885,51 +1034,4 @@ async def delete_transcript_segment(
         "message": "Transcript segment deleted successfully",
         "meeting_id": meeting_id,
         "segment_index": segment_index
-    }
-
-
-@router.delete("/{meeting_id}/transcript/segments")
-async def delete_all_transcript_segments(meeting_id: str, conn=Depends(get_conn)):
-    """
-    Delete ALL transcript segments for a meeting.
-    
-    Args:
-        meeting_id: The meeting ID
-    
-    Returns:
-        Deletion confirmation with count
-    """
-    result = meeting_service.delete_transcript_segments(meeting_id, conn=conn)
-    
-    if not result.get("success"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=result.get("message", "Failed to delete transcript segments")
-        )
-    
-    return {
-        "success": True,
-        "message": result.get("message"),
-        "meeting_id": meeting_id,
-        "deleted_count": result.get("deleted_count", 0)
-    }
-
-
-@router.get("/{meeting_id}/transcript/count")
-async def count_transcript_segments(meeting_id: str, conn=Depends(get_conn)):
-    """
-    Count the number of transcript segments for a meeting.
-    
-    Args:
-        meeting_id: The meeting ID
-    
-    Returns:
-        Segment count
-    """
-    count = meeting_service.count_transcript_segments(meeting_id, conn=conn)
-    
-    return {
-        "success": True,
-        "meeting_id": meeting_id,
-        "segment_count": count
     }
