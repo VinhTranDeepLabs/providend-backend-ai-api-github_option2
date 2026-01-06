@@ -241,16 +241,17 @@ class DatabaseUtils:
     # ==================== MEETING OPERATIONS ====================
     
     def create_meeting(self, meeting_id: str, client_id: str, advisor_id: str, 
-                      meeting_type: str = None, status: str = "Started") -> Dict:
+                    meeting_name: str = None, meeting_type: str = None, 
+                    status: str = "Started") -> Dict:
         """Create a new meeting"""
         try:
             cursor = self.conn.cursor()
             query = """
-                INSERT INTO meetings (meeting_id, client_id, advisor_id, meeting_type, created_datetime, status)
-                VALUES (%s, %s, %s, %s, NOW(), %s)
+                INSERT INTO meetings (meeting_id, client_id, advisor_id, meeting_name, meeting_type, created_datetime, status)
+                VALUES (%s, %s, %s, %s, %s, NOW(), %s)
                 RETURNING *;
             """
-            cursor.execute(query, (meeting_id, client_id, advisor_id, meeting_type, status))
+            cursor.execute(query, (meeting_id, client_id, advisor_id, meeting_name, meeting_type, status))
             result = cursor.fetchone()
             self.conn.commit()
             cursor.close()
@@ -258,6 +259,26 @@ class DatabaseUtils:
         except Error as e:
             self.conn.rollback()
             return {"success": False, "message": f"Error creating meeting: {e}"}
+        
+    def create_quick_meeting(self, meeting_id: str, advisor_id: str, 
+                            meeting_name: str = None, meeting_type: str = None, 
+                            status: str = "Started") -> Dict:
+        """Create a new quick meeting without client_id (can be assigned later)"""
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                INSERT INTO meetings (meeting_id, client_id, advisor_id, meeting_name, meeting_type, created_datetime, status)
+                VALUES (%s, NULL, %s, %s, %s, NOW(), %s)
+                RETURNING *;
+            """
+            cursor.execute(query, (meeting_id, advisor_id, meeting_name, meeting_type, status))
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            return {"success": True, "message": "Quick meeting created successfully", "meeting_id": result[0]}
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error creating quick meeting: {e}"}
     
     def get_meeting(self, meeting_id: str) -> Optional[Dict]:
         """Get meeting by meeting ID"""
@@ -273,9 +294,10 @@ class DatabaseUtils:
                     "meeting_id": result[0],
                     "client_id": result[1],
                     "advisor_id": result[2],
-                    "meeting_type": result[3],
-                    "created_datetime": result[4],
-                    "status": result[5]
+                    "meeting_name": result[3],
+                    "meeting_type": result[4],
+                    "created_datetime": result[5],
+                    "status": result[6]
                 }
             return None
         except Error as e:
@@ -283,7 +305,8 @@ class DatabaseUtils:
             return None
     
     def update_meeting(self, meeting_id: str, client_id: str = None, advisor_id: str = None,
-                      meeting_type: str = None, status: str = None) -> Dict:
+                  meeting_name: str = None, meeting_type: str = None, 
+                  status: str = None) -> Dict:
         """Update meeting details"""
         try:
             cursor = self.conn.cursor()
@@ -296,6 +319,9 @@ class DatabaseUtils:
             if advisor_id:
                 updates.append("advisor_id = %s")
                 params.append(advisor_id)
+            if meeting_name is not None:
+                updates.append("meeting_name = %s")
+                params.append(meeting_name)
             if meeting_type:
                 updates.append("meeting_type = %s")
                 params.append(meeting_type)
@@ -352,9 +378,10 @@ class DatabaseUtils:
                     "meeting_id": row[0],
                     "client_id": row[1],
                     "advisor_id": row[2],
-                    "meeting_type": row[3],
-                    "created_datetime": row[4],
-                    "status": row[5]
+                    "meeting_name": row[3],
+                    "meeting_type": row[4],
+                    "created_datetime": row[5],
+                    "status": row[6]
                 })
             return meetings
         except Error as e:

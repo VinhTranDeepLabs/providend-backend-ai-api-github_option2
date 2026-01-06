@@ -15,14 +15,15 @@ class MeetingService:
     """
 
     def create_meeting(self, meeting_id: str, client_id: str, advisor_id: str, 
-                      meeting_type: str = "General", status: str = "Started", 
-                      conn=None) -> Dict[str, Any]:
+                  meeting_name: str = None, meeting_type: str = "General", 
+                  status: str = "Started", conn=None) -> Dict[str, Any]:
         """Create a single meeting record.
         
         Args:
             meeting_id: Unique meeting identifier
             client_id: Client ID (FK)
             advisor_id: Advisor ID (FK)
+            meeting_name: Name/title of the meeting (defaults to "Scheduled meeting" in DB)
             meeting_type: Type of meeting (e.g., "Annual Review", "Initial Consultation")
             status: Meeting status (e.g., "Started", "In Progress", "Completed")
             conn: Database connection
@@ -37,6 +38,7 @@ class MeetingService:
             meeting_id=meeting_id,
             client_id=client_id,
             advisor_id=advisor_id,
+            meeting_name=meeting_name,
             meeting_type=meeting_type,
             status=status
         )
@@ -54,6 +56,51 @@ class MeetingService:
             "meeting_id": meeting_id,
             "client_id": client_id,
             "advisor_id": advisor_id,
+            "meeting_name": meeting_name or "Scheduled meeting",
+            "meeting_type": meeting_type,
+            "status": status
+        }
+    
+    def create_quick_meeting(self, meeting_id: str, advisor_id: str, 
+                            meeting_name: str = None, meeting_type: str = "General", 
+                            status: str = "Started", conn=None) -> Dict[str, Any]:
+        """Create a quick meeting without client_id (can be assigned later).
+        
+        Args:
+            meeting_id: Unique meeting identifier
+            advisor_id: Advisor ID (FK)
+            meeting_name: Name/title of the meeting (defaults to "Scheduled meeting" in DB)
+            meeting_type: Type of meeting (e.g., "Annual Review", "Initial Consultation")
+            status: Meeting status (e.g., "Started", "In Progress", "Completed")
+            conn: Database connection
+        
+        Returns:
+            Dict with success status and message
+        """
+        db = DatabaseUtils(conn)
+        
+        # Create quick meeting in meetings table (no client_id)
+        result = db.create_quick_meeting(
+            meeting_id=meeting_id,
+            advisor_id=advisor_id,
+            meeting_name=meeting_name,
+            meeting_type=meeting_type,
+            status=status
+        )
+        
+        if not result["success"]:
+            return result
+        
+        # Optionally create empty meeting_details record
+        details_result = db.create_meeting_detail(meeting_id=meeting_id)
+        
+        return {
+            "success": True,
+            "message": f"Quick meeting created successfully",
+            "meeting_id": meeting_id,
+            "client_id": None,
+            "advisor_id": advisor_id,
+            "meeting_name": meeting_name or "Quick meeting",
             "meeting_type": meeting_type,
             "status": status
         }
@@ -84,19 +131,25 @@ class MeetingService:
         # Get meeting details
         details = db.get_meeting_detail(meeting_id) or {}
         
-        # Get client info
-        client = db.get_client(meeting["client_id"]) or {}
+        # Get client info (handle NULL client_id for quick meetings)
+        client_id = meeting.get("client_id")
+        if client_id:
+            client = db.get_client(client_id) or {}
+            client_name = client.get("name")
+        else:
+            client_name = None
         
         # Get advisor info
         advisor = db.get_advisor(meeting["advisor_id"]) or {}
         
         return {
             "meeting_id": meeting_id,
+            "meeting_name": meeting.get("meeting_name"),
             "meeting_type": meeting.get("meeting_type"),
             "status": meeting.get("status"),
             "created_datetime": meeting.get("created_datetime"),
-            "client_id": meeting.get("client_id"),
-            "client_name": client.get("name"),
+            "client_id": client_id,
+            "client_name": client_name,
             "advisor_id": meeting.get("advisor_id"),
             "advisor_name": advisor.get("name"),
             "transcript": details.get("transcript"),
@@ -125,6 +178,16 @@ class MeetingService:
         """Update meeting type in meetings table"""
         db = DatabaseUtils(conn)
         return db.update_meeting(meeting_id=meeting_id, meeting_type=meeting_type)
+    
+    def update_meeting_name(self, meeting_id: str, meeting_name: str, conn=None) -> Dict[str, Any]:
+        """Update meeting name in meetings table"""
+        db = DatabaseUtils(conn)
+        return db.update_meeting(meeting_id=meeting_id, meeting_name=meeting_name)
+    
+    def assign_client_to_meeting(self, meeting_id: str, client_id: str, conn=None) -> Dict[str, Any]:
+        """Assign a client to a meeting (typically used for quick meetings)"""
+        db = DatabaseUtils(conn)
+        return db.update_meeting(meeting_id=meeting_id, client_id=client_id)
 
     def update_meeting_detail(self, meeting_id: str, conn=None, **updates) -> Dict[str, Any]:
         """Update meeting_details record.

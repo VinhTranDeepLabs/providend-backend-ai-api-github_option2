@@ -23,6 +23,7 @@ def get_conn(request: Request):
 async def create_meeting(
     client_id: str,
     advisor_id: str,
+    meeting_name: Optional[str] = None,
     meeting_type: str = "General",
     meeting_status: str = "Started",
     meeting_id: Optional[str] = None,
@@ -34,6 +35,7 @@ async def create_meeting(
     Args:
         client_id: The client ID
         advisor_id: The advisor ID
+        meeting_name: Name/title of the meeting (optional, defaults to "Scheduled meeting")
         meeting_type: Type of meeting (default: "General")
         meeting_status: Initial status (default: "Started")
         meeting_id: Optional custom meeting ID (auto-generated if not provided)
@@ -49,6 +51,7 @@ async def create_meeting(
         meeting_id=meeting_id,
         client_id=client_id,
         advisor_id=advisor_id,
+        meeting_name=meeting_name,
         meeting_type=meeting_type,
         status=meeting_status,
         conn=conn
@@ -66,6 +69,60 @@ async def create_meeting(
         "meeting_id": meeting_id,
         "client_id": client_id,
         "advisor_id": advisor_id,
+        "meeting_name": meeting_name or "Scheduled meeting",
+        "meeting_type": meeting_type,
+        "status": meeting_status
+    }
+
+
+@router.post("/quick-create")
+async def create_quick_meeting(
+    advisor_id: str,
+    meeting_name: Optional[str] = None,
+    meeting_type: str = "General",
+    meeting_status: str = "Started",
+    meeting_id: Optional[str] = None,
+    conn=Depends(get_conn)
+):
+    """
+    Create a quick meeting without client assignment (client can be added later).
+    
+    Args:
+        advisor_id: The advisor ID
+        meeting_name: Name/title of the meeting (optional, defaults to "Scheduled meeting")
+        meeting_type: Type of meeting (default: "General")
+        meeting_status: Initial status (default: "Started")
+        meeting_id: Optional custom meeting ID (auto-generated if not provided)
+    
+    Returns:
+        Created meeting details
+    """
+    # Generate meeting_id if not provided
+    if not meeting_id:
+        meeting_id = str(uuid4())
+    
+    result = meeting_service.create_quick_meeting(
+        meeting_id=meeting_id,
+        advisor_id=advisor_id,
+        meeting_name=meeting_name,
+        meeting_type=meeting_type,
+        status=meeting_status,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to create quick meeting")
+        )
+    
+    return {
+        "success": True,
+        "message": "Quick meeting created successfully",
+        "meeting_id": meeting_id,
+        "client_id": None,
+        "advisor_id": advisor_id,
+        "meeting_name": meeting_name or "Scheduled meeting",
         "meeting_type": meeting_type,
         "status": meeting_status
     }
@@ -589,6 +646,68 @@ async def get_transcript_segment_by_index(
 
 
 # ==================== PATCH METHODS ====================
+
+@router.patch("/{meeting_id}/meeting_name")
+async def update_meeting_name(
+    meeting_id: str,
+    meeting_name: str,
+    conn=Depends(get_conn)
+):
+    """
+    Update meeting name.
+    
+    Args:
+        meeting_id: The meeting ID
+        meeting_name: The new meeting name
+    
+    Returns:
+        Update confirmation
+    """
+    result = meeting_service.update_meeting_name(meeting_id, meeting_name, conn=conn)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to update meeting name")
+        )
+    
+    return {
+        "success": True,
+        "message": "Meeting name updated successfully",
+        "meeting_id": meeting_id,
+        "meeting_name": meeting_name
+    }
+
+@router.patch("/{meeting_id}/client")
+async def assign_client_to_meeting(
+    meeting_id: str,
+    client_id: str,
+    conn=Depends(get_conn)
+):
+    """
+    Assign a client to a meeting (typically used for quick meetings).
+    
+    Args:
+        meeting_id: The meeting ID
+        client_id: The client ID to assign
+    
+    Returns:
+        Update confirmation
+    """
+    result = meeting_service.assign_client_to_meeting(meeting_id, client_id, conn=conn)
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to assign client to meeting")
+        )
+    
+    return {
+        "success": True,
+        "message": "Client assigned to meeting successfully",
+        "meeting_id": meeting_id,
+        "client_id": client_id
+    }
 
 @router.patch("/{meeting_id}/details")
 async def update_meeting_details(

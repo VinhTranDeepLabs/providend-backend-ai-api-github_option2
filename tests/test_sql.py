@@ -96,6 +96,7 @@ def create_database_tables(connection):
             meeting_id VARCHAR(100) PRIMARY KEY,
             client_id VARCHAR(100) REFERENCES clients(client_id) ON DELETE CASCADE,
             advisor_id VARCHAR(100) REFERENCES advisors(advisor_id) ON DELETE SET NULL,
+            meeting_name VARCHAR(200) DEFAULT 'Scheduled meeting',
             meeting_type VARCHAR(50),
             created_datetime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             status VARCHAR(50)
@@ -229,6 +230,32 @@ def create_database_tables(connection):
             END IF;
         END $$;
     """
+
+    add_meeting_name = """
+        DO $$ 
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                          WHERE table_name='meetings' AND column_name='meeting_name') THEN
+                ALTER TABLE meetings ADD COLUMN meeting_name TEXT DEFAULT 'Scheduled meeting';
+            END IF;
+        END $$;
+    """
+
+    alter_meetings_client_id = """
+        DO $$ 
+        BEGIN
+            -- Check if client_id is NOT NULL and alter if necessary
+            IF EXISTS (
+                SELECT 1 
+                FROM information_schema.columns 
+                WHERE table_name = 'meetings' 
+                AND column_name = 'client_id' 
+                AND is_nullable = 'NO'
+            ) THEN
+                ALTER TABLE meetings ALTER COLUMN client_id DROP NOT NULL;
+            END IF;
+        END $$;
+    """
     
     if execute_command(connection, add_question_tracker):
         print("✓ 'question_tracker' column added")
@@ -244,6 +271,12 @@ def create_database_tables(connection):
 
     if execute_command(connection, add_question_tracker):
         print("✓ 'question_tracker' column added")
+
+    if execute_command(connection, add_meeting_name):
+        print("✓ 'question_tracker' column added")
+
+    if execute_command(connection, alter_meetings_client_id):
+        print("✓ 'client_id' column in meetings is now nullable")
 
 
 def drop_database_tables(connection):
