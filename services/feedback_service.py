@@ -8,13 +8,15 @@ class FeedbackService:
     def __init__(self):
         pass
     
-    def create_feedback(self, meeting_id: str, feedback: str, conn=None) -> Dict[str, Any]:
+    def create_feedback(self, meeting_id: str, feedback: str, feedback_on: str = None, 
+                    conn=None) -> Dict[str, Any]:
         """
         Create a new feedback entry for a meeting.
         
         Args:
             meeting_id: The meeting ID
             feedback: Feedback text content
+            feedback_on: What the feedback is about (e.g., "Summary", "Transcript", etc.)
             conn: Database connection
         
         Returns:
@@ -31,7 +33,8 @@ class FeedbackService:
             }
         
         # Create feedback
-        result = db.create_feedback(meeting_id=meeting_id, feedback=feedback)
+        result = db.create_feedback(meeting_id=meeting_id, feedback=feedback, 
+                                    feedback_on=feedback_on)
         
         return result
     
@@ -91,13 +94,15 @@ class FeedbackService:
             "feedbacks": feedbacks
         }
     
-    def update_feedback(self, feedback_index: int, feedback: str, conn=None) -> Dict[str, Any]:
+    def update_feedback(self, feedback_index: int, feedback: str = None, 
+                    feedback_on: str = None, conn=None) -> Dict[str, Any]:
         """
-        Update feedback text (automatically updates edited timestamp).
+        Update feedback text and/or feedback_on field.
         
         Args:
             feedback_index: The feedback index
-            feedback: New feedback text
+            feedback: New feedback text (optional)
+            feedback_on: What the feedback is about (optional)
             conn: Database connection
         
         Returns:
@@ -114,7 +119,8 @@ class FeedbackService:
             }
         
         # Update feedback
-        result = db.update_feedback(feedback_index=feedback_index, feedback=feedback)
+        result = db.update_feedback(feedback_index=feedback_index, feedback=feedback,
+                                feedback_on=feedback_on)
         
         return result
     

@@ -95,6 +95,7 @@ class AdvisorService:
                 "client_id": client_id,
                 "client_name": client_name,
                 "meeting_type": meeting["meeting_type"],
+                "meeting_name": meeting["meeting_name"],
                 "status": meeting["status"],
                 "created_datetime": meeting["created_datetime"],
                 "has_details": meeting_details is not None,

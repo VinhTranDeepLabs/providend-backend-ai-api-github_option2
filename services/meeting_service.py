@@ -460,6 +460,7 @@ class MeetingService:
         Update transcript in meeting_details with diff tracking.
         
         Compares new transcript with original and marks deletions with <del> tags.
+        Resets processing to trigger background reprocessing.
         
         Args:
             meeting_id: Meeting identifier
@@ -485,8 +486,14 @@ class MeetingService:
         # Generate diff markup (compare new with original)
         marked_up_transcript = self._generate_diff_markup(original_transcript, transcript)
         
-        # Save marked-up transcript (psycopg2 handles escaping automatically)
-        return db.update_meeting_detail(meeting_id=meeting_id, transcript=marked_up_transcript)
+        # Save marked-up transcript AND reset processing status
+        return db.update_meeting_detail(
+            meeting_id=meeting_id, 
+            transcript=marked_up_transcript,
+            processing_status='pending',
+            processing_retry_count=0,
+            processing_error=None
+        )
     
 
     def append_to_transcript(self, meeting_id: str, new_content: str, conn=None) -> Dict[str, Any]:

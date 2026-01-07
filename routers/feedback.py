@@ -20,6 +20,7 @@ def get_conn(request: Request):
 async def create_feedback(
     meeting_id: str,
     feedback: str,
+    feedback_on: str = None,  # Add this parameter
     conn=Depends(get_conn)
 ):
     """
@@ -28,6 +29,7 @@ async def create_feedback(
     Args:
         meeting_id: The meeting ID
         feedback: Feedback text content
+        feedback_on: What the feedback is about (e.g., "Summary", "Transcript", etc.)
     
     Returns:
         Created feedback details
@@ -35,6 +37,7 @@ async def create_feedback(
     result = feedback_service.create_feedback(
         meeting_id=meeting_id,
         feedback=feedback,
+        feedback_on=feedback_on,  # Add this
         conn=conn
     )
     
@@ -50,6 +53,7 @@ async def create_feedback(
         "feedback_index": result.get("feedback_index"),
         "meeting_id": result.get("meeting_id"),
         "feedback": result.get("feedback"),
+        "feedback_on": result.get("feedback_on"),  # Add this
         "edit_datetime": result.get("edit_datetime")
     }
 
@@ -119,15 +123,17 @@ async def get_meeting_feedbacks(
 @router.patch("/{feedback_index}")
 async def update_feedback(
     feedback_index: int,
-    feedback: str,
+    feedback: str = None,
+    feedback_on: str = None,  # Add this parameter
     conn=Depends(get_conn)
 ):
     """
-    Update feedback text (automatically updates edited timestamp).
+    Update feedback text and/or feedback_on field.
     
     Args:
         feedback_index: The feedback index
-        feedback: New feedback text
+        feedback: New feedback text (optional)
+        feedback_on: What the feedback is about (optional)
     
     Returns:
         Updated feedback details
@@ -135,6 +141,7 @@ async def update_feedback(
     result = feedback_service.update_feedback(
         feedback_index=feedback_index,
         feedback=feedback,
+        feedback_on=feedback_on,  # Add this
         conn=conn
     )
     
@@ -146,10 +153,11 @@ async def update_feedback(
     
     return {
         "success": True,
-        "message": "Feedback created successfully",
+        "message": "Feedback updated successfully",
         "feedback_index": result.get("feedback_index"),
         "meeting_id": result.get("meeting_id"),
         "feedback": result.get("feedback"),
+        "feedback_on": result.get("feedback_on"),  # Add this
         "edit_datetime": result.get("edit_datetime")
     }
 
