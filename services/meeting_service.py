@@ -141,6 +141,8 @@ class MeetingService:
         
         # Get advisor info
         advisor = db.get_advisor(meeting["advisor_id"]) or {}
+
+        print(meeting)
         
         return {
             "meeting_id": meeting_id,

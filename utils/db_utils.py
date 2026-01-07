@@ -247,11 +247,11 @@ class DatabaseUtils:
         try:
             cursor = self.conn.cursor()
             query = """
-                INSERT INTO meetings (meeting_id, client_id, advisor_id, meeting_name, meeting_type, created_datetime, status)
-                VALUES (%s, %s, %s, %s, %s, NOW(), %s)
+                INSERT INTO meetings (meeting_id, client_id, advisor_id, meeting_type, created_datetime, status, meeting_name)
+                VALUES (%s, %s, %s, %s, NOW(), %s, %s)
                 RETURNING *;
             """
-            cursor.execute(query, (meeting_id, client_id, advisor_id, meeting_name, meeting_type, status))
+            cursor.execute(query, (meeting_id, client_id, advisor_id, meeting_type, status, meeting_name))
             result = cursor.fetchone()
             self.conn.commit()
             cursor.close()
@@ -267,11 +267,11 @@ class DatabaseUtils:
         try:
             cursor = self.conn.cursor()
             query = """
-                INSERT INTO meetings (meeting_id, client_id, advisor_id, meeting_name, meeting_type, created_datetime, status)
-                VALUES (%s, NULL, %s, %s, %s, NOW(), %s)
+                INSERT INTO meetings (meeting_id, client_id, advisor_id, meeting_type, created_datetime, status, meeting_name)
+                VALUES (%s, NULL, %s, %s, NOW(), %s, %s)
                 RETURNING *;
             """
-            cursor.execute(query, (meeting_id, advisor_id, meeting_name, meeting_type, status))
+            cursor.execute(query, (meeting_id, advisor_id, meeting_type, status, meeting_name))
             result = cursor.fetchone()
             self.conn.commit()
             cursor.close()
@@ -288,16 +288,15 @@ class DatabaseUtils:
             cursor.execute(query, (meeting_id,))
             result = cursor.fetchone()
             cursor.close()
-            
             if result:
                 return {
                     "meeting_id": result[0],
                     "client_id": result[1],
                     "advisor_id": result[2],
-                    "meeting_name": result[3],
-                    "meeting_type": result[4],
-                    "created_datetime": result[5],
-                    "status": result[6]
+                    "meeting_type": result[3],
+                    "created_datetime": result[4],
+                    "status": result[5],
+                    "meeting_name": result[6],
                 }
             return None
         except Error as e:
@@ -378,10 +377,10 @@ class DatabaseUtils:
                     "meeting_id": row[0],
                     "client_id": row[1],
                     "advisor_id": row[2],
-                    "meeting_name": row[3],
-                    "meeting_type": row[4],
-                    "created_datetime": row[5],
-                    "status": row[6]
+                    "meeting_type": row[3],
+                    "created_datetime": row[4],
+                    "status": row[5],
+                    "meeting_name": row[6],
                 })
             return meetings
         except Error as e:
@@ -1301,3 +1300,136 @@ class DatabaseUtils:
                 "message": f"Error marking processing as failed: {e}",
                 "will_retry": False
             }
+        
+    # ==================== FEEDBACK OPERATIONS ====================
+
+    def create_feedback(self, meeting_id: str, feedback: str) -> Dict:
+        """Create a new feedback entry for a meeting"""
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                INSERT INTO feedback (meeting_id, feedback, edit_datetime)
+                VALUES (%s, %s, NOW())
+                RETURNING index, meeting_id, feedback, edit_datetime;
+            """
+            cursor.execute(query, (meeting_id, feedback))
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            
+            return {
+                "success": True, 
+                "message": "Feedback created successfully",
+                "feedback_index": result[0],
+                "meeting_id": result[1],
+                "feedback": result[2],
+                "edit_datetime": result[3]
+            }
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error creating feedback: {e}"}
+
+    def get_feedback(self, feedback_index: int) -> Optional[Dict]:
+        """Get feedback by index"""
+        try:
+            cursor = self.conn.cursor()
+            query = "SELECT index, meeting_id, feedback, edit_datetime FROM feedback WHERE index = %s;"
+            cursor.execute(query, (feedback_index,))
+            result = cursor.fetchone()
+            cursor.close()
+            
+            if result:
+                return {
+                    "index": result[0],
+                    "meeting_id": result[1],
+                    "feedback": result[2],
+                    "edit_datetime": result[3]
+                }
+            return None
+        except Error as e:
+            print(f"Error fetching feedback: {e}")
+            return None
+
+    def list_feedbacks(self, meeting_id: str = None) -> List[Dict]:
+        """List all feedbacks for a meeting or all feedbacks if meeting_id not provided"""
+        try:
+            cursor = self.conn.cursor()
+            if meeting_id:
+                query = """
+                    SELECT index, meeting_id, feedback, edit_datetime 
+                    FROM feedback 
+                    WHERE meeting_id = %s 
+                    ORDER BY edit_datetime DESC;
+                """
+                cursor.execute(query, (meeting_id,))
+            else:
+                query = """
+                    SELECT index, meeting_id, feedback, edit_datetime 
+                    FROM feedback 
+                    ORDER BY edit_datetime DESC;
+                """
+                cursor.execute(query)
+            
+            results = cursor.fetchall()
+            cursor.close()
+            
+            feedbacks = []
+            for row in results:
+                feedbacks.append({
+                    "index": row[0],
+                    "meeting_id": row[1],
+                    "feedback": row[2],
+                    "edit_datetime": row[3]
+                })
+            return feedbacks
+        except Error as e:
+            print(f"Error listing feedbacks: {e}")
+            return []
+
+    def update_feedback(self, feedback_index: int, feedback: str) -> Dict:
+        """Update feedback text (automatically updates edit_datetime timestamp)"""
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                UPDATE feedback 
+                SET feedback = %s, edit_datetime = NOW() 
+                WHERE index = %s
+                RETURNING index, meeting_id, feedback, edit_datetime;
+            """
+            cursor.execute(query, (feedback, feedback_index))
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            
+            if result:
+                return {
+                    "success": True, 
+                    "message": "Feedback updated successfully",
+                    "feedback_index": result[0],
+                    "meeting_id": result[1],
+                    "feedback": result[2],
+                    "edit_datetime": result[3]
+                }
+            else:
+                return {"success": False, "message": "Feedback not found"}
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error updating feedback: {e}"}
+
+    def delete_feedback(self, feedback_index: int) -> Dict:
+        """Delete a feedback entry"""
+        try:
+            cursor = self.conn.cursor()
+            query = "DELETE FROM feedback WHERE index = %s RETURNING index;"
+            cursor.execute(query, (feedback_index,))
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            
+            if result:
+                return {"success": True, "message": "Feedback deleted successfully"}
+            else:
+                return {"success": False, "message": "Feedback not found"}
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error deleting feedback: {e}"}

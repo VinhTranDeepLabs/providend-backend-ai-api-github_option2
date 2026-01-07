@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime
 from uuid import uuid4
 from services.meeting_service import MeetingService
-from models.schemas import GetQuestionTrackerResponse
+from models.schemas import GetQuestionTrackerResponse, TranscriptSegmentRequest
 
 router = APIRouter()
 meeting_service = MeetingService()
@@ -250,25 +250,23 @@ async def aggregate_meeting_transcripts(
 @router.post("/{meeting_id}/transcript/segment")
 async def add_transcript_segment(
     meeting_id: str,
-    transcript: str,
-    start_datetime: Optional[datetime] = None,
+    body: TranscriptSegmentRequest,  # Accept body as Pydantic model
     conn=Depends(get_conn)
 ):
     """
     Add a transcript segment to the meeting.
     
     Args:
-        meeting_id: The meeting ID
-        transcript: Transcript text segment
-        start_datetime: When this segment was captured (optional, defaults to NOW)
+        meeting_id: The meeting ID (from path)
+        body: Request body containing transcript and optional start_datetime
     
     Returns:
         Confirmation with segment index
     """
     result = meeting_service.add_transcript_segment(
         meeting_id=meeting_id,
-        transcript=transcript,
-        start_datetime=start_datetime,
+        transcript=body.transcript,  # Extract from body
+        start_datetime=body.start_datetime,  # Extract from body
         conn=conn
     )
     

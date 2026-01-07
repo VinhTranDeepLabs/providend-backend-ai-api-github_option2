@@ -141,7 +141,7 @@ def create_database_tables(connection):
         );
     """
     
-    # Table 7: Transcript_Aggregator (NEW)
+    # Table 7: Transcript_Aggregator
     create_transcript_aggregator_table = """
         CREATE TABLE IF NOT EXISTS transcript_aggregator (
             index SERIAL PRIMARY KEY,
@@ -151,6 +151,7 @@ def create_database_tables(connection):
         );
     """
 
+    # Table 8: Processed_audio_files
     create_processed_audio_files = """
         CREATE TABLE IF NOT EXISTS processed_audio_files (
             blob_name VARCHAR(255) PRIMARY KEY,
@@ -159,6 +160,16 @@ def create_database_tables(connection):
             processed_datetime TIMESTAMPTZ,
             error_message TEXT,
             file_size_bytes BIGINT
+        );
+    """
+
+    # Table 9: Feedback
+    create_feedback_table = """
+        CREATE TABLE IF NOT EXISTS feedback (
+            index SERIAL PRIMARY KEY,
+            meeting_id VARCHAR(100) REFERENCES meetings(meeting_id) ON DELETE CASCADE,
+            feedback TEXT,
+            edit_datetime TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """
     
@@ -186,6 +197,9 @@ def create_database_tables(connection):
 
     if execute_command(connection, create_processed_audio_files):
         print("✓ 'transcript_aggregator' table created")
+
+    if execute_command(connection, create_feedback_table):
+        print("✓ 'feedback' table created")
 
     # ==================== ADD PROCESSING COLUMNS TO MEETING_DETAILS ====================
     print("\n--- Adding Processing Columns to meeting_details ---")
@@ -292,6 +306,7 @@ def drop_database_tables(connection):
     6) products (standalone)
     7) advisors (standalone)
     """
+    drop_feedback = "DROP TABLE IF EXISTS feedback CASCADE;"
     drop_transcript_aggregator = "DROP TABLE IF EXISTS transcript_aggregator CASCADE;"
     drop_client_products = "DROP TABLE IF EXISTS client_products CASCADE;"
     drop_meeting_details = "DROP TABLE IF EXISTS meeting_details CASCADE;"
@@ -301,6 +316,8 @@ def drop_database_tables(connection):
     drop_advisors = "DROP TABLE IF EXISTS advisors CASCADE;"
 
     print("\nDropping tables (if they exist)...")
+    if execute_command(connection, drop_feedback):
+        print("✓ 'feedback' dropped (if existed)")
     if execute_command(connection, drop_transcript_aggregator):
         print("✓ 'transcript_aggregator' dropped (if existed)")
     if execute_command(connection, drop_client_products):
@@ -388,6 +405,7 @@ def main():
             view_table_columns(conn, "products")
             view_table_columns(conn, "client_products")
             view_table_columns(conn, "transcript_aggregator")
+            view_table_columns(conn, "feedback")
 
             # # Delete all tables (uncomment to drop)
             # drop_database_tables(conn)

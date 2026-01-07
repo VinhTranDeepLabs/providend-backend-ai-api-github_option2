@@ -145,6 +145,10 @@ class GenerateSummaryResponse(BaseModel):
 
 ####### Transcript Aggregator Schemas ########
 
+class TranscriptSegmentRequest(BaseModel):
+    transcript: str
+    start_datetime: Optional[datetime] = None
+
 class TranscriptSegment(BaseModel):
     """Individual transcript segment"""
     index: int = Field(..., description="Auto-incrementing segment index")

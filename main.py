@@ -4,7 +4,7 @@ from backup import network
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from routers import login, question_analysis, meeting, question_template, advisor, client, summarization, transcript, process
+from routers import login, question_analysis, meeting, question_template, advisor, client, summarization, transcript, process, feedback
 import uvicorn
 
 # Load environment variables
@@ -56,6 +56,7 @@ app.include_router(advisor.router, prefix="/api/v1/advisor", tags=["Advisors"])
 app.include_router(client.router, prefix="/api/v1/client", tags=["Clients"])
 app.include_router(transcript.router, prefix="/api/v1/transcript", tags=["Transcripts"])
 app.include_router(process.router, prefix="/api/v1/process", tags=["Process"])
+app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
 
 #app.include_router(summarization.router, prefix="/api/v1", tags=["Summarization"])
 
