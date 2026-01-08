@@ -386,6 +386,167 @@ class DatabaseUtils:
         except Error as e:
             print(f"Error listing meetings: {e}")
             return []
+        
+    def list_meetings_paginated(
+        self,
+        advisor_id: str,
+        search: str = None,
+        meeting_types: List[str] = None,
+        date_from: str = None,
+        date_to: str = None,
+        sort_by: str = "date",
+        sort_order: str = "desc",
+        page: int = 1,
+        per_page: int = 10
+    ) -> Dict[str, Any]:
+        """
+        List meetings with pagination, search, filtering, and sorting
+        
+        Args:
+            advisor_id: Advisor ID to filter meetings
+            search: Search term for client_name, meeting_name, or meeting_type
+            meeting_types: List of meeting types to filter (OR logic)
+            date_from: Start date filter (ISO format: YYYY-MM-DD)
+            date_to: End date filter (ISO format: YYYY-MM-DD)
+            sort_by: Field to sort by ('date' or 'client_name')
+            sort_order: Sort order ('asc' or 'desc')
+            page: Page number (1-indexed)
+            per_page: Number of records per page
+        
+        Returns:
+            Dict with 'data' (list of meetings) and 'pagination' (metadata)
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Base WHERE clause
+            where_clauses = ["m.advisor_id = %s"]
+            params = [advisor_id]
+            
+            # Search filter (case-insensitive partial match)
+            if search:
+                search_clause = """(
+                    LOWER(c.name) LIKE LOWER(%s) OR 
+                    LOWER(m.meeting_name) LIKE LOWER(%s) OR 
+                    LOWER(m.meeting_type) LIKE LOWER(%s)
+                )"""
+                where_clauses.append(search_clause)
+                search_pattern = f"%{search}%"
+                params.extend([search_pattern, search_pattern, search_pattern])
+            
+            # Meeting type filter (multiple values with OR logic)
+            if meeting_types and len(meeting_types) > 0:
+                placeholders = ','.join(['%s'] * len(meeting_types))
+                where_clauses.append(f"m.meeting_type IN ({placeholders})")
+                params.extend(meeting_types)
+            
+            # Date range filter
+            if date_from:
+                where_clauses.append("m.created_datetime >= %s")
+                params.append(date_from)
+            
+            if date_to:
+                # Include the entire end date (up to 23:59:59)
+                where_clauses.append("m.created_datetime < %s::date + interval '1 day'")
+                params.append(date_to)
+            
+            # Build WHERE clause
+            where_sql = " AND ".join(where_clauses)
+            
+            # Count total records
+            count_query = f"""
+                SELECT COUNT(*)
+                FROM meetings m
+                LEFT JOIN clients c ON m.client_id = c.client_id
+                WHERE {where_sql};
+            """
+            cursor.execute(count_query, params)
+            total_records = cursor.fetchone()[0]
+            
+            # Calculate pagination
+            total_pages = (total_records + per_page - 1) // per_page  # Ceiling division
+            
+            # Ensure page doesn't exceed total_pages
+            if page > total_pages and total_pages > 0:
+                page = total_pages
+            
+            # Calculate offset
+            offset = (page - 1) * per_page
+            
+            # Determine ORDER BY clause
+            if sort_by == "client_name":
+                # Handle NULL client_id (quick meetings) - put them last
+                order_by = f"c.name {sort_order.upper()} NULLS LAST"
+            else:  # sort_by == "date"
+                order_by = f"m.created_datetime {sort_order.upper()}"
+            
+            # Build main query
+            select_query = f"""
+                SELECT 
+                    m.meeting_id,
+                    m.client_id,
+                    c.name as client_name,
+                    m.advisor_id,
+                    m.meeting_name,
+                    m.meeting_type,
+                    m.created_datetime,
+                    m.status
+                FROM meetings m
+                LEFT JOIN clients c ON m.client_id = c.client_id
+                WHERE {where_sql}
+                ORDER BY {order_by}
+                LIMIT %s OFFSET %s;
+            """
+            
+            cursor.execute(select_query, params + [per_page, offset])
+            results = cursor.fetchall()
+            cursor.close()
+            
+            # Format results
+            meetings = []
+            for row in results:
+                meetings.append({
+                    "meeting_id": row[0],
+                    "client_id": row[1],
+                    "client_name": row[2],
+                    "advisor_id": row[3],
+                    "meeting_name": row[4],
+                    "meeting_type": row[5],
+                    "created_datetime": row[6],
+                    "status": row[7]
+                })
+            
+            # Build pagination metadata
+            pagination = {
+                "current_page": page,
+                "per_page": per_page,
+                "total_records": total_records,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_previous": page > 1
+            }
+            
+            return {
+                "success": True,
+                "data": meetings,
+                "pagination": pagination
+            }
+            
+        except Error as e:
+            print(f"Error listing paginated meetings: {e}")
+            return {
+                "success": False,
+                "data": [],
+                "pagination": {
+                    "current_page": page,
+                    "per_page": per_page,
+                    "total_records": 0,
+                    "total_pages": 0,
+                    "has_next": False,
+                    "has_previous": False
+                },
+                "error": str(e)
+            }
     
     # ==================== MEETING DETAILS OPERATIONS ====================
     

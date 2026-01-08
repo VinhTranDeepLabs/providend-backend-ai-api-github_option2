@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Request, Depends, Response, status, HTTPException
+from fastapi import APIRouter, Request, Depends, Response, status, HTTPException, Query
 from services.advisor_service import AdvisorService
+from typing import Optional, List
 
 router = APIRouter()
 advisor_service = AdvisorService()
@@ -193,23 +194,72 @@ async def get_advisor_clients(advisor_id: str, conn=Depends(get_conn)):
 
 
 @router.get("/{advisor_id}/meetings")
-async def get_advisor_meetings(advisor_id: str, conn=Depends(get_conn)):
+async def get_advisor_meetings(
+    advisor_id: str,
+    search: Optional[str] = Query(None, description="Search in client name, meeting name, or meeting type"),
+    meeting_type: Optional[str] = Query(None, description="Filter by meeting types (comma-separated for multiple)"),
+    date_from: Optional[str] = Query(None, description="Start date filter (ISO format: YYYY-MM-DD)", regex=r"^\d{4}-\d{2}-\d{2}$"),
+    date_to: Optional[str] = Query(None, description="End date filter (ISO format: YYYY-MM-DD)", regex=r"^\d{4}-\d{2}-\d{2}$"),
+    sort_by: str = Query("date", description="Sort by field", regex="^(date|client_name)$"),
+    sort_order: str = Query("desc", description="Sort order", regex="^(asc|desc)$"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    per_page: int = Query(10, ge=1, le=100, description="Records per page"),
+    conn=Depends(get_conn)
+):
     """
-    Get all meetings for an advisor.
+    Get paginated meetings for an advisor with search, filtering, and sorting.
     
     Args:
         advisor_id: The advisor ID
+        search: Search term (searches client name, meeting name, meeting type)
+        meeting_type: Filter by meeting type(s) - comma-separated for multiple (e.g., "General,Annual Review")
+        date_from: Start date (ISO format: YYYY-MM-DD)
+        date_to: End date (ISO format: YYYY-MM-DD)
+        sort_by: Sort field - 'date' or 'client_name'
+        sort_order: Sort order - 'asc' or 'desc'
+        page: Page number (starts at 1)
+        per_page: Number of records per page (max 100)
     
     Returns:
-        List of meetings conducted by this advisor
+        Paginated list of meetings with metadata
     """
-    result = advisor_service.get_advisor_meetings(advisor_id, conn=conn)
+    # Parse meeting_types from comma-separated string
+    meeting_types = None
+    if meeting_type:
+        meeting_types = [mt.strip() for mt in meeting_type.split(",") if mt.strip()]
+    
+    # Validate date range
+    if date_from and date_to:
+        if date_from > date_to:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="date_from must be before or equal to date_to"
+            )
+    
+    result = advisor_service.get_advisor_meetings(
+        advisor_id=advisor_id,
+        search=search,
+        meeting_types=meeting_types,
+        date_from=date_from,
+        date_to=date_to,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        page=page,
+        per_page=per_page,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=result.get("error", "Failed to fetch meetings")
+        )
     
     return {
         "success": True,
         "advisor_id": advisor_id,
-        "total_meetings": result.get("total_meetings", 0),
-        "meetings": result.get("meetings", [])
+        "data": result["data"],
+        "pagination": result["pagination"]
     }
 
 

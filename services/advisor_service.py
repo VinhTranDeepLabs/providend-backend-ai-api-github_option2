@@ -71,42 +71,52 @@ class AdvisorService:
             "clients": clients_list
         }
 
-    def get_advisor_meetings(self, advisor_id: str, conn=None) -> Dict[str, Any]:
-        """Get all meetings for an advisor with client and meeting details"""
+    def get_advisor_meetings(
+        self, 
+        advisor_id: str,
+        search: str = None,
+        meeting_types: List[str] = None,
+        date_from: str = None,
+        date_to: str = None,
+        sort_by: str = "date",
+        sort_order: str = "desc",
+        page: int = 1,
+        per_page: int = 10,
+        conn=None
+    ) -> Dict[str, Any]:
+        """
+        Get paginated meetings for an advisor with search, filtering, and sorting
+        
+        Args:
+            advisor_id: The advisor ID
+            search: Search term for client name, meeting name, or meeting type
+            meeting_types: List of meeting types to filter
+            date_from: Start date filter (ISO format)
+            date_to: End date filter (ISO format)
+            sort_by: Field to sort by ('date' or 'client_name')
+            sort_order: Sort order ('asc' or 'desc')
+            page: Page number (1-indexed)
+            per_page: Records per page
+            conn: Database connection
+        
+        Returns:
+            Dict with meetings data and pagination metadata
+        """
         db = DatabaseUtils(conn)
         
-        # Get all meetings for this advisor
-        meetings = db.list_meetings(advisor_id=advisor_id)
+        result = db.list_meetings_paginated(
+            advisor_id=advisor_id,
+            search=search,
+            meeting_types=meeting_types,
+            date_from=date_from,
+            date_to=date_to,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            page=page,
+            per_page=per_page
+        )
         
-        result = []
-        for meeting in meetings:
-            meeting_id = meeting["meeting_id"]
-            client_id = meeting["client_id"]
-            
-            # Get client name
-            client = db.get_client(client_id)
-            client_name = client["name"] if client else "Unknown"
-            
-            # Get meeting details if available
-            meeting_details = db.get_meeting_detail(meeting_id)
-            
-            result.append({
-                "meeting_id": meeting_id,
-                "client_id": client_id,
-                "client_name": client_name,
-                "meeting_type": meeting["meeting_type"],
-                "meeting_name": meeting["meeting_name"],
-                "status": meeting["status"],
-                "created_datetime": meeting["created_datetime"],
-                "has_details": meeting_details is not None,
-                "summary": meeting_details.get("summary") if meeting_details else None
-            })
-        
-        return {
-            "advisor_id": advisor_id,
-            "total_meetings": len(result),
-            "meetings": result
-        }
+        return result
 
     def get_advisor_statistics(self, advisor_id: str, conn=None) -> Dict[str, Any]:
         """Get statistics for an advisor (clients, meetings, etc.)"""
