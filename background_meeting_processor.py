@@ -237,9 +237,6 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
             summary_task(),
             recommendation_task()
         )
-        
-        print("@@@@@@")
-        print(recommendation_result["success"])
 
         # Check if both succeeded
         if autofill_result["success"] and summary_result["success"] and recommendation_result["success"]:

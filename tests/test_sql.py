@@ -271,16 +271,7 @@ def create_database_tables(connection):
             END IF;
         END $$;
     """
-
-    # add_feedback_on_column = """
-    #     DO $$ 
-    #     BEGIN
-    #         IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-    #                     WHERE table_name='feedback' AND column_name='feedback_on') THEN
-    #             ALTER TABLE feedback ADD COLUMN feedback_on VARCHAR(50);
-    #         END IF;
-    #     END $$;
-    # """
+    
     
     if execute_command(connection, add_question_tracker):
         print("✓ 'question_tracker' column added")
@@ -303,8 +294,6 @@ def create_database_tables(connection):
     if execute_command(connection, alter_meetings_client_id):
         print("✓ 'client_id' column in meetings is now nullable")
 
-    # if execute_command(connection, add_feedback_on_column):
-    #     print("✓ 'feedback_on' column added")
 
 
 def drop_database_tables(connection):
