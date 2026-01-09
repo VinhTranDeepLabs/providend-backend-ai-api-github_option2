@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException, Path, Request, Depends
 from models.schemas import (
     GenerateSummaryRequest,
     GenerateSummaryResponse,
@@ -7,7 +7,16 @@ from models.schemas import (
 from services.summay_service import SummaryService
 
 router = APIRouter()
-meeting_service = SummaryService()
+summary_service = SummaryService()
+
+
+def get_conn(request: Request):
+    """Return shared DB connection from app.state.db_conn."""
+    conn = getattr(request.app.state, "db_conn", None)
+    if conn is None:
+        raise RuntimeError("DB connection not available on app.state.db_conn")
+    return conn
+
 
 @router.post(
     "/{meeting_id}/summary",
@@ -16,7 +25,8 @@ meeting_service = SummaryService()
 )
 async def generate_meeting_summary(
     meeting_id: str = Path(..., description="The meeting ID"),
-    request: GenerateSummaryRequest = None
+    request: GenerateSummaryRequest = None,
+    conn=Depends(get_conn)
 ):
     """
     Generate a structured 3-paragraph summary from meeting transcript
@@ -26,13 +36,17 @@ async def generate_meeting_summary(
     - Client Situation: Current circumstances and financial status
     - Goals: What the client wants to achieve
     
-    - **meeting_id**: The ID of the meeting (for reference/logging)
+    - **meeting_id**: The ID of the meeting (used to fetch participant names)
     - **transcript**: The conversation transcript to summarize
     
-    Returns formatted summary without saving to database
+    Returns formatted summary with actual participant names instead of Speaker 1/Speaker 2
     """
     try:
-        summary = meeting_service.generate_summary(request.transcript)
+        summary = summary_service.generate_summary(
+            transcript=request.transcript,
+            meeting_id=meeting_id,
+            conn=conn
+        )
         
         return GenerateSummaryResponse(
             summary=summary,
