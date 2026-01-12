@@ -455,16 +455,15 @@ class MeetingService:
         return ''.join(output_parts)
 
 
-    def update_meeting_transcript(self, meeting_id: str, transcript: str, conn=None) -> Dict[str, Any]:
+    def update_meeting_transcript(self, meeting_id: str, transcript: str, 
+                                created_by: str = "SYSTEM", conn=None) -> Dict[str, Any]:
         """
-        Update transcript in meeting_details with diff tracking.
-        
-        Compares new transcript with original and marks deletions with <del> tags.
-        Resets processing to trigger background reprocessing.
+        Update transcript in meeting_details with diff tracking AND create version.
         
         Args:
             meeting_id: Meeting identifier
             transcript: New transcript content (unescaped, raw string)
+            created_by: advisor_id who made the change
             conn: Database connection
         
         Returns:
@@ -472,12 +471,23 @@ class MeetingService:
         """
         db = DatabaseUtils(conn)
         
-        # Get existing meeting details
-        details = self.get_meeting_detail(meeting_id, conn)
+        # Get existing meeting details using db instance (not self.get_meeting_detail)
+        details = db.get_meeting_detail(meeting_id)  # <-- FIXED: Use db instance directly
         
         if not details or not details.get("transcript"):
-            # First time saving transcript - save as-is, no markup
-            return db.update_meeting_detail(meeting_id=meeting_id, transcript=transcript)
+            # First time saving transcript - save as-is, no markup, create v1
+            result = db.update_meeting_detail(meeting_id=meeting_id, transcript=transcript)
+            
+            if result.get("success"):
+                # Create version 1 (clean, no <del> tags)
+                db.create_content_version(
+                    meeting_id=meeting_id,
+                    content_type='transcript',
+                    content=transcript,
+                    created_by=created_by
+                )
+            
+            return result
         
         # Extract original transcript by removing <del> tags
         existing_transcript = details.get("transcript")
@@ -487,13 +497,24 @@ class MeetingService:
         marked_up_transcript = self._generate_diff_markup(original_transcript, transcript)
         
         # Save marked-up transcript AND reset processing status
-        return db.update_meeting_detail(
+        result = db.update_meeting_detail(
             meeting_id=meeting_id, 
             transcript=marked_up_transcript,
             processing_status='pending',
             processing_retry_count=0,
             processing_error=None
         )
+        
+        # Create new version with marked-up transcript
+        if result.get("success"):
+            db.create_content_version(
+                meeting_id=meeting_id,
+                content_type='transcript',
+                content=marked_up_transcript,
+                created_by=created_by
+            )
+        
+        return result
     
 
     def append_to_transcript(self, meeting_id: str, new_content: str, conn=None) -> Dict[str, Any]:
@@ -512,15 +533,15 @@ class MeetingService:
 
     # ==================== SUMMARY & RECOMMENDATIONS ====================
     
-    def update_meeting_summary(self, meeting_id: str, summary: str, conn=None) -> Dict[str, Any]:
+    def update_meeting_summary(self, meeting_id: str, summary: str, 
+                            created_by: str = "SYSTEM", conn=None) -> Dict[str, Any]:
         """
-        Update summary in meeting_details with diff tracking.
-        
-        Compares new summary with original and marks deletions with <del> tags.
+        Update summary in meeting_details with diff tracking AND create version.
         
         Args:
             meeting_id: Meeting identifier
             summary: New summary content
+            created_by: advisor_id who made the change
             conn: Database connection
         
         Returns:
@@ -528,12 +549,23 @@ class MeetingService:
         """
         db = DatabaseUtils(conn)
         
-        # Get existing meeting details
-        details = self.get_meeting_detail(meeting_id, conn)
+        # Get existing meeting details using the db instance (not self.get_meeting_detail)
+        details = db.get_meeting_detail(meeting_id)
         
         if not details or not details.get("summary"):
-            # First time saving summary - save as-is, no markup
-            return db.update_meeting_detail(meeting_id=meeting_id, summary=summary)
+            # First time saving summary - save as-is, no markup, create v1
+            result = db.update_meeting_detail(meeting_id=meeting_id, summary=summary)
+            
+            if result.get("success"):
+                # Create version 1 (clean, no <del> tags)
+                db.create_content_version(
+                    meeting_id=meeting_id,
+                    content_type='summary',
+                    content=summary,
+                    created_by=created_by
+                )
+            
+            return result
         
         # Extract original summary by removing <del> tags
         existing_summary = details.get("summary")
@@ -542,8 +574,19 @@ class MeetingService:
         # Generate diff markup (compare new with original)
         marked_up_summary = self._generate_diff_markup(original_summary, summary)
         
-        # Save marked-up summary (psycopg2 handles escaping automatically)
-        return db.update_meeting_detail(meeting_id=meeting_id, summary=marked_up_summary)
+        # Save marked-up summary
+        result = db.update_meeting_detail(meeting_id=meeting_id, summary=marked_up_summary)
+        
+        # Create new version with marked-up summary
+        if result.get("success"):
+            db.create_content_version(
+                meeting_id=meeting_id,
+                content_type='summary',
+                content=marked_up_summary,
+                created_by=created_by
+            )
+        
+        return result
 
     def update_meeting_recommendations(self, meeting_id: str, recommendations: str, conn=None) -> Dict[str, Any]:
         """Update recommendations in meeting_details"""
@@ -674,14 +717,16 @@ class MeetingService:
     
     def aggregate_meeting_transcripts(self, meeting_id: str, separator: str = "\n", 
                                      save_to_details: bool = True, 
+                                     created_by: str = "SYSTEM",
                                      conn=None) -> Dict[str, Any]:
         """
-        Aggregate all transcript segments into a single transcript.
+        Aggregate all transcript segments into a single transcript AND create v1.
         
         Args:
             meeting_id: Meeting identifier
             separator: String to join segments (default: newline)
-            save_to_details: If True, save aggregated transcript to meeting_details
+            save_to_details: If True, save to meeting_details
+            created_by: Who triggered the aggregation
             conn: Database connection
         
         Returns:
@@ -712,6 +757,14 @@ class MeetingService:
                     "message": f"Failed to save aggregated transcript: {update_result.get('message')}",
                     "transcript": full_transcript
                 }
+            
+            # Create version 1 (initial aggregation, clean text)
+            db.create_content_version(
+                meeting_id=meeting_id,
+                content_type='transcript',
+                content=full_transcript,
+                created_by=created_by
+            )
         
         # Get segment count
         segment_count = db.count_transcript_segments(meeting_id)
@@ -792,3 +845,161 @@ class MeetingService:
         """
         db = DatabaseUtils(conn)
         return db.count_transcript_segments(meeting_id)
+    
+
+     # ==================== NEW VERSION-RELATED METHODS ====================
+    
+    def get_content_version_history(self, meeting_id: str, content_type: str, 
+                                   conn=None) -> Dict[str, Any]:
+        """
+        Get version history for a specific content type
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: 'transcript' or 'summary'
+            conn: Database connection
+        
+        Returns:
+            Dict with version list
+        """
+        db = DatabaseUtils(conn)
+        versions = db.list_content_versions(meeting_id, content_type)
+        
+        return {
+            "success": True,
+            "meeting_id": meeting_id,
+            "content_type": content_type,
+            "total_versions": len(versions),
+            "versions": versions
+        }
+    
+    def get_content_version(self, meeting_id: str, content_type: str, 
+                           version_number: int, conn=None) -> Dict[str, Any]:
+        """
+        Get a specific content version
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: 'transcript' or 'summary'
+            version_number: Version number to retrieve
+            conn: Database connection
+        
+        Returns:
+            Dict with version details
+        """
+        db = DatabaseUtils(conn)
+        version = db.get_content_version(meeting_id, content_type, version_number)
+        
+        if not version:
+            return {
+                "success": False,
+                "message": f"{content_type.capitalize()} version {version_number} not found"
+            }
+        
+        return {
+            "success": True,
+            "version": version
+        }
+    
+    def compare_content_versions(self, meeting_id: str, content_type: str, 
+                                v1: int, v2: int, conn=None) -> Dict[str, Any]:
+        """
+        Compare two versions of content
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: 'transcript' or 'summary'
+            v1: First version number
+            v2: Second version number
+            conn: Database connection
+        
+        Returns:
+            Dict with both versions for comparison
+        """
+        db = DatabaseUtils(conn)
+        
+        version1 = db.get_content_version(meeting_id, content_type, v1)
+        version2 = db.get_content_version(meeting_id, content_type, v2)
+        
+        if not version1 or not version2:
+            return {
+                "success": False,
+                "message": "One or both versions not found"
+            }
+        
+        return {
+            "success": True,
+            "meeting_id": meeting_id,
+            "content_type": content_type,
+            "version_1": {
+                "version_number": version1["version_number"],
+                "content": version1["content"],
+                "created_by": version1["created_by"],
+                "created_at": version1["created_at"],
+                "is_current": version1["is_current"]
+            },
+            "version_2": {
+                "version_number": version2["version_number"],
+                "content": version2["content"],
+                "created_by": version2["created_by"],
+                "created_at": version2["created_at"],
+                "is_current": version2["is_current"]
+            }
+        }
+    
+    def rollback_content_to_version(self, meeting_id: str, content_type: str, 
+                                   version_number: int, created_by: str = "SYSTEM",
+                                   conn=None) -> Dict[str, Any]:
+        """
+        Rollback content to a previous version
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: 'transcript' or 'summary'
+            version_number: Version to rollback to
+            created_by: Who triggered the rollback
+            conn: Database connection
+        
+        Returns:
+            Dict with success status and restored content
+        """
+        db = DatabaseUtils(conn)
+        
+        # Perform rollback (updates meeting_details and sets is_current)
+        result = db.rollback_content_to_version(meeting_id, content_type, version_number)
+        
+        if not result.get("success"):
+            return result
+        
+        # Create a new version to track the rollback action
+        # This preserves the fact that a rollback happened
+        content = result.get("content")
+        db.create_content_version(
+            meeting_id=meeting_id,
+            content_type=content_type,
+            content=content,
+            created_by=created_by
+        )
+        
+        return result
+    
+    def get_unified_edit_timeline(self, meeting_id: str, conn=None) -> Dict[str, Any]:
+        """
+        Get unified timeline of all edits (transcript + summary + others)
+        
+        Args:
+            meeting_id: Meeting identifier
+            conn: Database connection
+        
+        Returns:
+            Dict with chronological timeline of all edits
+        """
+        db = DatabaseUtils(conn)
+        timeline = db.get_unified_timeline(meeting_id)
+        
+        return {
+            "success": True,
+            "meeting_id": meeting_id,
+            "total_edits": len(timeline),
+            "timeline": timeline
+        }

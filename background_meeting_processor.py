@@ -41,7 +41,6 @@ import json
 from services.question_service import QuestionService
 from services.summay_service import SummaryService
 from services.product_service import ProductRecommendationService
-from services.transcription_service import TranscribeService
 from utils.db_utils import DatabaseUtils
 
 # Load environment variables
@@ -190,18 +189,12 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
                 return {"success": False, "error": str(e)}
         
         async def summary_task():
-            """Generate summary task - WITH VERSION CREATION"""
+            """Generate summary task"""
             logger.info(f"[{meeting_id}] Running summary generation...")
             start_time = time.time()
             
             try:
-                # Pass created_by and conn to enable version creation
-                summary = summary_service.generate_summary(
-                    transcript=transcript,
-                    meeting_id=meeting_id,
-                    created_by="AI_PROCESSOR",  # <-- ADDED: Track AI-generated summaries
-                    conn=conn
-                )
+                summary = summary_service.generate_summary(transcript)
                 
                 duration = time.time() - start_time
                 logger.info(f"[{meeting_id}] ✓ Summary completed in {duration:.2f}s")
@@ -236,15 +229,16 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
                 logger.error(f"[{meeting_id}] ✗ Recommendations failed: {e}")
                 return {"success": False, "error": str(e)}
 
+
         
         # Run tasks in parallel
-        autofill_result, summary_result, recommendation_result = await asyncio.gather(
+        autofill_result, summary_result, recommendation_result  = await asyncio.gather(
             autofill_task(),
             summary_task(),
             recommendation_task()
         )
 
-        # Check if all succeeded
+        # Check if both succeeded
         if autofill_result["success"] and summary_result["success"] and recommendation_result["success"]:
             return {
                 "success": True,
@@ -259,8 +253,6 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
                 errors.append(f"Autofill: {autofill_result['error']}")
             if not summary_result["success"]:
                 errors.append(f"Summary: {summary_result['error']}")
-            if not recommendation_result["success"]:
-                errors.append(f"Recommendations: {recommendation_result['error']}")
             
             return {
                 "success": False,
@@ -278,6 +270,13 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
 def process_single_meeting(meeting: Dict, conn) -> bool:
     """
     Process a single meeting end-to-end.
+    
+    Args:
+        meeting: Meeting dictionary from database
+        conn: Database connection
+    
+    Returns:
+        True if successful, False if failed
     """
     meeting_id = meeting["meeting_id"]
     transcript = meeting["transcript"]
@@ -299,35 +298,6 @@ def process_single_meeting(meeting: Dict, conn) -> bool:
     if not db.claim_meeting_for_processing(meeting_id):
         logger.warning(f"[{meeting_id}] ⚠ Already being processed by another instance")
         return False
-    
-    # ==================== ADD THIS SECTION ====================
-    # Step 1.5: Identify and replace speaker labels with actual names/roles
-    try:
-        transcribe_service = TranscribeService()
-        cleaned_transcript = transcribe_service.identify_and_replace_speakers(
-            transcript=transcript,
-            meeting_id=meeting_id,
-            conn=conn
-        )
-        
-        # Update meeting_details with cleaned transcript
-        db.update_meeting_detail(meeting_id=meeting_id, transcript=cleaned_transcript)
-        
-        # Create transcript version 1 with cleaned transcript
-        db.create_content_version(
-            meeting_id=meeting_id,
-            content_type='transcript',
-            content=cleaned_transcript,
-            created_by='AI_PROCESSOR'
-        )
-        
-        # Use cleaned transcript for all subsequent processing
-        transcript = cleaned_transcript
-        logger.info(f"[{meeting_id}] ✓ Transcript updated with identified speakers")
-        
-    except Exception as e:
-        logger.error(f"[{meeting_id}] ✗ Failed to identify speakers: {e}")
-        logger.warning(f"[{meeting_id}]   Continuing with original transcript")
     
     try:
         # Step 2: Run processing tasks (async)

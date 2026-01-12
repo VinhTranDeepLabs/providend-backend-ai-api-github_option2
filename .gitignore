@@ -208,3 +208,7 @@ __marimo__/
 
 # Other files
 audio
+background_transcribe.py
+background_playground.py
+playground.py
+tests/outputs/transcript.txt
