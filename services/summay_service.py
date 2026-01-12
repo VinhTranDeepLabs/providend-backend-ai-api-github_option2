@@ -4,13 +4,16 @@ from utils.db_utils import DatabaseUtils
 
 # Update the SummaryService class
 class SummaryService:
-    def generate_summary(self, transcript: str, meeting_id: str = None, conn=None) -> str:
+    def generate_summary(self, transcript: str, meeting_id: str = None, 
+                        created_by: str = "AI_PROCESSOR", conn=None) -> str:
         """
         Generate a structured 3-paragraph summary from meeting transcript
+        AND create version 1 if this is first summary generation
         
         Args:
             transcript: The conversation transcript
-            meeting_id: Optional meeting ID to fetch participant names
+            meeting_id: Optional meeting ID to fetch participant names and create version
+            created_by: Who generated the summary (default: AI_PROCESSOR)
             conn: Database connection
         
         Returns:
@@ -44,7 +47,9 @@ IMPORTANT: The participants in this meeting are:
 - Advisor: {advisor_name}
 - Client: {client_name}
 
-When writing the summary, use these actual names instead of generic labels like "Speaker 1", "Speaker 2", "the advisor", or "the client". For example:
+When writing the summary, you need to analyze the transcript of a meeting that will be given to you to understand who is the advisor and who is the client. 
+If there is a 3rd or 4th speaker, identify their role as well and name them accordingly based on transcript if possible, else use Client 2, client 3.
+Use these actual names instead of generic labels like "Speaker 1", "Speaker 2", "the advisor", or "the client". For example:
 - Instead of "The advisor explained...", write "{advisor_name} explained..."
 - Instead of "The client mentioned...", write "{client_name} mentioned..."
 """
@@ -157,4 +162,27 @@ Task Description Title: Detailed explanation of what needs to be done, including
             max_tokens=800
         )
         
-        return summary.strip()
+        summary_text = summary.strip()
+        
+        # If meeting_id provided, save to meeting_details and create version 1
+        if meeting_id and conn:
+            try:
+                from utils.db_utils import DatabaseUtils
+                db = DatabaseUtils(conn)
+                
+                # Check if summary already exists
+                details = db.get_meeting_detail(meeting_id)
+                
+                if not details or not details.get("summary"):
+                    # First time - save and create v1
+                    db.update_meeting_detail(meeting_id=meeting_id, summary=summary_text)
+                    db.create_content_version(
+                        meeting_id=meeting_id,
+                        content_type='summary',
+                        content=summary_text,
+                        created_by=created_by
+                    )
+            except Exception as e:
+                print(f"Warning: Could not save summary version: {e}")
+        
+        return summary_text

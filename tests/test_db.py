@@ -1,9 +1,16 @@
 import os
+import sys
 import psycopg2
+from psycopg2 import OperationalError, Error
 from dotenv import load_dotenv
-from utils.db_utils import DatabaseUtils
+from uuid import uuid4
 from datetime import date, datetime, timezone
 from decimal import Decimal
+
+# Add parent directory to Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from utils.db_utils import DatabaseUtils
 
 # Load environment variables
 load_dotenv()
@@ -24,6 +31,402 @@ def create_connection():
     except Exception as e:
         print(f"✗ Error connecting to PostgreSQL: {e}")
         return None
+    
+def test_content_versioning(conn):
+    """Comprehensive test for content versioning system"""
+    
+    print("\n" + "="*60)
+    print("TESTING CONTENT VERSIONING SYSTEM")
+    print("="*60)
+    
+    db = DatabaseUtils(conn)
+    
+    # Setup: Create advisor, client, meeting
+    test_advisor_id = str(uuid4())
+    test_client_id = str(uuid4())
+    test_meeting_id = str(uuid4())
+    
+    print("\n--- Setup: Creating test data ---")
+    db.create_advisor(advisor_id=test_advisor_id, name="Dr. Test", email="test@test.com")
+    db.create_client(client_id=test_client_id, name="Test Client", advisor_id=test_advisor_id)
+    db.create_meeting(meeting_id=test_meeting_id, client_id=test_client_id, advisor_id=test_advisor_id)
+    db.create_meeting_detail(meeting_id=test_meeting_id)
+    print("✓ Test data created")
+    
+    # ==================== TEST 1: Create Transcript Versions ====================
+    print("\n--- TEST 1: Create Transcript Versions ---")
+    
+    # Version 1 (initial, clean)
+    v1_result = db.create_content_version(
+        meeting_id=test_meeting_id,
+        content_type='transcript',
+        content="Client wants to retire at age 65.",
+        created_by=test_advisor_id
+    )
+    print(f"✓ Created transcript v1: {v1_result['message']}")
+    assert v1_result['success'] == True
+    assert v1_result['version_number'] == 1
+    
+    # Version 2 (with edits)
+    v2_result = db.create_content_version(
+        meeting_id=test_meeting_id,
+        content_type='transcript',
+        content="Client wants to retire at <del>age 65</del> 60.",
+        created_by=test_advisor_id
+    )
+    print(f"✓ Created transcript v2: {v2_result['message']}")
+    assert v2_result['success'] == True
+    assert v2_result['version_number'] == 2
+    
+    # Version 3 (more edits)
+    v3_result = db.create_content_version(
+        meeting_id=test_meeting_id,
+        content_type='transcript',
+        content="Client wants to retire at <del>age 65</del> 60 and invest in bonds.",
+        created_by=test_advisor_id
+    )
+    print(f"✓ Created transcript v3: {v3_result['message']}")
+    assert v3_result['version_number'] == 3
+    
+    # ==================== TEST 2: Create Summary Versions ====================
+    print("\n--- TEST 2: Create Summary Versions ---")
+    
+    # Summary v1 (AI-generated)
+    s1_result = db.create_content_version(
+        meeting_id=test_meeting_id,
+        content_type='summary',
+        content="Client discussed retirement planning and investment strategy.",
+        created_by="AI_PROCESSOR"
+    )
+    print(f"✓ Created summary v1: {s1_result['message']}")
+    assert s1_result['version_number'] == 1
+    
+    # Summary v2 (advisor edit)
+    s2_result = db.create_content_version(
+        meeting_id=test_meeting_id,
+        content_type='summary',
+        content="Client discussed <del>retirement planning</del> early retirement and investment strategy.",
+        created_by=test_advisor_id
+    )
+    print(f"✓ Created summary v2: {s2_result['message']}")
+    assert s2_result['version_number'] == 2
+    
+    # ==================== TEST 3: Retrieve Specific Versions ====================
+    print("\n--- TEST 3: Retrieve Specific Versions ---")
+    
+    transcript_v2 = db.get_content_version(test_meeting_id, 'transcript', 2)
+    print(f"✓ Retrieved transcript v2:")
+    print(f"  Content: {transcript_v2['content'][:60]}...")
+    print(f"  Created by: {transcript_v2['created_by']}")
+    print(f"  Is current: {transcript_v2['is_current']}")
+    assert transcript_v2 is not None
+    assert transcript_v2['version_number'] == 2
+    assert "<del>" in transcript_v2['content']
+    
+    summary_v1 = db.get_content_version(test_meeting_id, 'summary', 1)
+    print(f"✓ Retrieved summary v1:")
+    print(f"  Content: {summary_v1['content'][:60]}...")
+    print(f"  Created by: {summary_v1['created_by']}")
+    assert summary_v1['created_by'] == "AI_PROCESSOR"
+    
+    # ==================== TEST 4: List Version History ====================
+    print("\n--- TEST 4: List Version History ---")
+    
+    transcript_versions = db.list_content_versions(test_meeting_id, 'transcript')
+    print(f"✓ Transcript versions: {len(transcript_versions)} found")
+    for v in transcript_versions:
+        print(f"  v{v['version_number']}: {v['content_length']} chars, "
+              f"created by {v['created_by']}, current={v['is_current']}")
+    assert len(transcript_versions) == 3
+    
+    summary_versions = db.list_content_versions(test_meeting_id, 'summary')
+    print(f"✓ Summary versions: {len(summary_versions)} found")
+    assert len(summary_versions) == 2
+    
+    # ==================== TEST 5: Get Current Version ====================
+    print("\n--- TEST 5: Get Current Version ---")
+    
+    current_transcript = db.get_current_content_version(test_meeting_id, 'transcript')
+    print(f"✓ Current transcript version: v{current_transcript['version_number']}")
+    assert current_transcript['version_number'] == 3
+    assert current_transcript['is_current'] == True
+    
+    current_summary = db.get_current_content_version(test_meeting_id, 'summary')
+    print(f"✓ Current summary version: v{current_summary['version_number']}")
+    assert current_summary['version_number'] == 2
+    
+    # ==================== TEST 6: Version Count ====================
+    print("\n--- TEST 6: Version Count ---")
+    
+    transcript_count = db.get_content_version_count(test_meeting_id, 'transcript')
+    summary_count = db.get_content_version_count(test_meeting_id, 'summary')
+    print(f"✓ Transcript versions: {transcript_count}")
+    print(f"✓ Summary versions: {summary_count}")
+    assert transcript_count == 3
+    assert summary_count == 2
+    
+    # ==================== TEST 7: Unified Timeline ====================
+    print("\n--- TEST 7: Unified Timeline ---")
+    
+    timeline = db.get_unified_timeline(test_meeting_id)
+    print(f"✓ Unified timeline: {len(timeline)} total edits")
+    print(f"  Chronological order:")
+    for entry in timeline:
+        print(f"    {entry['created_at']}: {entry['content_type']} v{entry['version_number']} "
+              f"by {entry['created_by']}")
+    assert len(timeline) == 5  # 3 transcript + 2 summary
+    
+    # ==================== TEST 8: Rollback Functionality ====================
+    print("\n--- TEST 8: Rollback Functionality ---")
+    
+    # Rollback transcript to v2
+    rollback_result = db.rollback_content_to_version(test_meeting_id, 'transcript', 2)
+    print(f"✓ Rollback result: {rollback_result['message']}")
+    assert rollback_result['success'] == True
+    assert rollback_result['version_number'] == 2
+    
+    # Verify v2 is now current
+    current = db.get_current_content_version(test_meeting_id, 'transcript')
+    print(f"✓ Current version after rollback: v{current['version_number']}")
+    assert current['version_number'] == 2
+    assert current['is_current'] == True
+    
+    # Verify v3 is no longer current
+    v3_check = db.get_content_version(test_meeting_id, 'transcript', 3)
+    assert v3_check['is_current'] == False
+    
+    # Verify meeting_details was updated
+    meeting_details = db.get_meeting_detail(test_meeting_id)
+    print(f"✓ meeting_details.transcript updated: {meeting_details['transcript'][:50]}...")
+    assert "<del>age 65</del> 60" in meeting_details['transcript']
+    
+    # ==================== TEST 9: Set Current Version ====================
+    print("\n--- TEST 9: Set Current Version ---")
+    
+    # Set v1 as current
+    set_result = db.set_current_content_version(test_meeting_id, 'transcript', 1)
+    print(f"✓ Set v1 as current: {set_result['message']}")
+    assert set_result['success'] == True
+    
+    # Verify
+    current = db.get_current_content_version(test_meeting_id, 'transcript')
+    assert current['version_number'] == 1
+    
+    # Verify others are not current
+    v2_check = db.get_content_version(test_meeting_id, 'transcript', 2)
+    v3_check = db.get_content_version(test_meeting_id, 'transcript', 3)
+    assert v2_check['is_current'] == False
+    assert v3_check['is_current'] == False
+    
+    # ==================== TEST 10: Independent Version Numbering ====================
+    print("\n--- TEST 10: Independent Version Numbering ---")
+    
+    # Transcript has v1, v2, v3
+    # Summary has v1, v2
+    # They should be independent
+    
+    print(f"✓ Transcript versions: {db.get_content_version_count(test_meeting_id, 'transcript')}")
+    print(f"✓ Summary versions: {db.get_content_version_count(test_meeting_id, 'summary')}")
+    
+    # Create another summary version
+    s3_result = db.create_content_version(
+        meeting_id=test_meeting_id,
+        content_type='summary',
+        content="Updated summary v3",
+        created_by=test_advisor_id
+    )
+    assert s3_result['version_number'] == 3  # Should be 3, not affected by transcript versions
+    print(f"✓ Created summary v3 (independent numbering)")
+    
+    # ==================== TEST 11: Error Handling ====================
+    print("\n--- TEST 11: Error Handling ---")
+    
+    # Try to get non-existent version
+    non_existent = db.get_content_version(test_meeting_id, 'transcript', 999)
+    print(f"✓ Non-existent version returns None: {non_existent is None}")
+    assert non_existent is None
+    
+    # Try to rollback to non-existent version
+    bad_rollback = db.rollback_content_to_version(test_meeting_id, 'transcript', 999)
+    print(f"✓ Rollback to non-existent version fails: {bad_rollback['success']}")
+    assert bad_rollback['success'] == False
+    
+    # Try to set non-existent version as current
+    bad_set = db.set_current_content_version(test_meeting_id, 'transcript', 999)
+    print(f"✓ Set non-existent version fails: {bad_set['success']}")
+    assert bad_set['success'] == False
+    
+    # ==================== CLEANUP ====================
+    print("\n--- Cleanup ---")
+    
+    # Note: Deleting meeting will CASCADE delete all versions automatically
+    db.delete_meeting(test_meeting_id)
+    db.delete_client(test_client_id)
+    db.delete_advisor(test_advisor_id)
+    print("✓ Test data cleaned up")
+    
+    print("\n" + "="*60)
+    print("CONTENT VERSIONING TESTS COMPLETED SUCCESSFULLY")
+    print("="*60)
+
+
+def test_version_with_meeting_service(conn):
+    """Test versioning through MeetingService (integration test)"""
+    
+    print("\n" + "="*60)
+    print("TESTING VERSIONING THROUGH MEETING SERVICE")
+    print("="*60)
+    
+    from services.meeting_service import MeetingService
+    
+    db = DatabaseUtils(conn)
+    meeting_service = MeetingService()
+    
+    # Setup
+    test_advisor_id = str(uuid4())
+    test_client_id = str(uuid4())
+    test_meeting_id = str(uuid4())
+    
+    print("\n--- Setup ---")
+    db.create_advisor(advisor_id=test_advisor_id, name="Dr. Service Test", email="service@test.com")
+    db.create_client(client_id=test_client_id, name="Service Test Client", advisor_id=test_advisor_id)
+    db.create_meeting(meeting_id=test_meeting_id, client_id=test_client_id, advisor_id=test_advisor_id)
+    db.create_meeting_detail(meeting_id=test_meeting_id)
+    print("✓ Test data created")
+    
+    # ==================== TEST: Update Transcript (Auto-versioning) ====================
+    print("\n--- TEST: Update Transcript (Auto-versioning) ---")
+    
+    # First update (creates v1)
+    result1 = meeting_service.update_meeting_transcript(
+        meeting_id=test_meeting_id,
+        transcript="Initial transcript content.",
+        created_by=test_advisor_id,
+        conn=conn
+    )
+    print(f"✓ First update: {result1['message']}")
+    
+    # Check v1 created
+    v1 = db.get_content_version(test_meeting_id, 'transcript', 1)
+    assert v1 is not None
+    assert v1['content'] == "Initial transcript content."
+    assert v1['is_current'] == True
+    print(f"✓ Version 1 created: {v1['content']}")
+    
+    # Second update (creates v2 with diff)
+    result2 = meeting_service.update_meeting_transcript(
+        meeting_id=test_meeting_id,
+        transcript="Updated transcript content.",
+        created_by=test_advisor_id,
+        conn=conn
+    )
+    print(f"✓ Second update: {result2['message']}")
+    
+    # Check v2 created with <del> tags
+    v2 = db.get_content_version(test_meeting_id, 'transcript', 2)
+    assert v2 is not None
+    assert "<del>" in v2['content']  # Should have diff markup
+    assert v2['is_current'] == True
+    print(f"✓ Version 2 created with diff: {v2['content'][:60]}...")
+    
+    # ==================== TEST: Update Summary (Auto-versioning) ====================
+    print("\n--- TEST: Update Summary (Auto-versioning) ---")
+    
+    # First update (creates v1)
+    result1 = meeting_service.update_meeting_summary(
+        meeting_id=test_meeting_id,
+        summary="Initial summary.",
+        created_by=test_advisor_id,
+        conn=conn
+    )
+    print(f"✓ First summary update")
+    
+    s1 = db.get_content_version(test_meeting_id, 'summary', 1)
+    assert s1 is not None
+    print(f"✓ Summary v1 created")
+    
+    # Second update (creates v2 with diff)
+    result2 = meeting_service.update_meeting_summary(
+        meeting_id=test_meeting_id,
+        summary="Updated summary.",
+        created_by=test_advisor_id,
+        conn=conn
+    )
+    print(f"✓ Second summary update")
+    
+    s2 = db.get_content_version(test_meeting_id, 'summary', 2)
+    assert s2 is not None
+    assert "<del>" in s2['content']
+    print(f"✓ Summary v2 created with diff")
+    
+    # ==================== TEST: Rollback Through Service ====================
+    print("\n--- TEST: Rollback Through Service ---")
+    
+    rollback_result = meeting_service.rollback_content_to_version(
+        meeting_id=test_meeting_id,
+        content_type='transcript',
+        version_number=1,
+        created_by=test_advisor_id,
+        conn=conn
+    )
+    print(f"✓ Rollback: {rollback_result['message']}")
+    
+    # Verify rollback created a new version (v3)
+    v3 = db.get_content_version(test_meeting_id, 'transcript', 3)
+    assert v3 is not None
+    assert v3['content'] == v1['content']  # Should match v1
+    assert v3['is_current'] == True
+    print(f"✓ Rollback created v3 (copy of v1)")
+    
+    # ==================== TEST: Version History ====================
+    print("\n--- TEST: Version History Through Service ---")
+    
+    history = meeting_service.get_content_version_history(
+        meeting_id=test_meeting_id,
+        content_type='transcript',
+        conn=conn
+    )
+    print(f"✓ Version history retrieved: {history['total_versions']} versions")
+    assert history['total_versions'] == 3
+    
+    # ==================== TEST: Compare Versions ====================
+    print("\n--- TEST: Compare Versions Through Service ---")
+    
+    comparison = meeting_service.compare_content_versions(
+        meeting_id=test_meeting_id,
+        content_type='transcript',
+        v1=1,
+        v2=2,
+        conn=conn
+    )
+    print(f"✓ Comparison retrieved")
+    print(f"  V1 length: {len(comparison['version_1']['content'])} chars")
+    print(f"  V2 length: {len(comparison['version_2']['content'])} chars")
+    assert comparison['success'] == True
+    
+    # ==================== TEST: Unified Timeline ====================
+    print("\n--- TEST: Unified Timeline Through Service ---")
+    
+    timeline = meeting_service.get_unified_edit_timeline(
+        meeting_id=test_meeting_id,
+        conn=conn
+    )
+    print(f"✓ Timeline retrieved: {timeline['total_edits']} edits")
+    print(f"  Timeline entries:")
+    for entry in timeline['timeline']:
+        print(f"    {entry['content_type']} v{entry['version_number']} by {entry['created_by']}")
+    assert timeline['total_edits'] >= 5  # 3 transcript + 2 summary
+    
+    # ==================== CLEANUP ====================
+    print("\n--- Cleanup ---")
+    db.delete_meeting(test_meeting_id)
+    db.delete_client(test_client_id)
+    db.delete_advisor(test_advisor_id)
+    print("✓ Test data cleaned up")
+    
+    print("\n" + "="*60)
+    print("MEETING SERVICE VERSIONING TESTS COMPLETED SUCCESSFULLY")
+    print("="*60)
 
 def main():
     # Create connection
@@ -315,7 +718,10 @@ def main():
         
         # Get segment by index
         segment = db.get_transcript_segment_by_index("MTG202", 2)
-        print(f"\nGet Segment by Index (2): {segment['transcript'][:60]}...")
+        if segment:
+            print(f"\nGet Segment by Index (2): {segment['transcript'][:60]}...")
+        else:
+            print(f"\n✗ Segment index 2 not found for meeting MTG202")
         
         # Get segments by time range
         segments_filtered = db.get_transcript_segments_by_time(
@@ -370,6 +776,10 @@ def main():
         # db.delete_product("PROD202")
         # db.delete_advisor(advisor_id)
         # print("✓ Test data cleaned up")
+
+        # Add new versioning tests
+        test_content_versioning(conn)
+        test_version_with_meeting_service(conn)
         
         print("\n" + "="*60)
         print("DATABASE UTILITIES TEST COMPLETED")

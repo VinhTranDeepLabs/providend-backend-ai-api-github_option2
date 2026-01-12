@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from enum import Enum
+from uuid import UUID
 
 # Request Models
 class TranscriptRequest(BaseModel):
@@ -239,3 +241,112 @@ class SSOResponse(BaseModel):
     valid: bool = Field(..., description="Whether the token is valid")
     user: Dict[str, Any] = Field(..., description="User information from database")
     access_token: str = Field(..., description="The validated access token")
+
+# ==================== ENUMS ====================
+
+class ContentType(str, Enum):
+    """Content types for versioning"""
+    transcript = "transcript"
+    summary = "summary"
+    recommendations = "recommendations"
+    questions = "questions"
+    notes = "notes"
+
+
+# ==================== VERSION MODELS ====================
+
+class ContentVersion(BaseModel):
+    """Complete content version record"""
+    version_id: UUID = Field(..., description="Unique version identifier")
+    meeting_id: str = Field(..., description="Meeting ID")
+    content_type: ContentType = Field(..., description="Type of content")
+    version_number: int = Field(..., description="Version number")
+    content: str = Field(..., description="Full content with <del> tags")
+    created_by: str = Field(..., description="Advisor ID or SYSTEM/AI_PROCESSOR")
+    created_at: datetime = Field(..., description="When version was created")
+    is_current: bool = Field(..., description="Whether this is the active version")
+
+
+class ContentVersionMetadata(BaseModel):
+    """Version metadata without full content (for list views)"""
+    version_id: UUID = Field(..., description="Unique version identifier")
+    meeting_id: str = Field(..., description="Meeting ID")
+    content_type: ContentType = Field(..., description="Type of content")
+    version_number: int = Field(..., description="Version number")
+    created_by: str = Field(..., description="Advisor ID or SYSTEM/AI_PROCESSOR")
+    created_at: datetime = Field(..., description="When version was created")
+    is_current: bool = Field(..., description="Whether this is the active version")
+    content_length: int = Field(..., description="Character count of content")
+
+
+class ContentVersionListResponse(BaseModel):
+    """Response for listing versions"""
+    success: bool = True
+    meeting_id: str = Field(..., description="Meeting ID")
+    content_type: ContentType = Field(..., description="Type of content")
+    total_versions: int = Field(..., description="Total number of versions")
+    versions: List[ContentVersionMetadata] = Field(..., description="List of version metadata")
+
+
+class ContentVersionResponse(BaseModel):
+    """Response for getting a single version"""
+    success: bool = True
+    version: ContentVersion = Field(..., description="Full version details")
+
+
+class ContentVersionCompareRequest(BaseModel):
+    """Request to compare two versions"""
+    v1: int = Field(..., description="First version number", ge=1)
+    v2: int = Field(..., description="Second version number", ge=1)
+
+
+class VersionDetail(BaseModel):
+    """Version details for comparison"""
+    version_number: int = Field(..., description="Version number")
+    content: str = Field(..., description="Content with <del> tags")
+    created_by: str = Field(..., description="Who created this version")
+    created_at: datetime = Field(..., description="When created")
+    is_current: bool = Field(..., description="Is this the current version")
+
+
+class ContentVersionCompareResponse(BaseModel):
+    """Response for comparing versions"""
+    success: bool = True
+    meeting_id: str = Field(..., description="Meeting ID")
+    content_type: ContentType = Field(..., description="Type of content")
+    version_1: VersionDetail = Field(..., description="First version")
+    version_2: VersionDetail = Field(..., description="Second version")
+
+
+class RollbackContentVersionRequest(BaseModel):
+    """Request to rollback to a version"""
+    version_number: int = Field(..., description="Version to rollback to", ge=1)
+    created_by: str = Field("SYSTEM", description="Who triggered the rollback")
+
+
+class RollbackContentVersionResponse(BaseModel):
+    """Response for rollback operation"""
+    success: bool = True
+    message: str = Field(..., description="Success message")
+    meeting_id: str = Field(..., description="Meeting ID")
+    restored_version: int = Field(..., description="Version that was restored")
+
+
+class TimelineEntry(BaseModel):
+    """Single entry in unified timeline"""
+    version_id: UUID = Field(..., description="Version identifier")
+    meeting_id: str = Field(..., description="Meeting ID")
+    content_type: ContentType = Field(..., description="Type of content edited")
+    version_number: int = Field(..., description="Version number")
+    created_by: str = Field(..., description="Who made the edit")
+    created_at: datetime = Field(..., description="When edit was made")
+    is_current: bool = Field(..., description="Is this currently active")
+    content_length: int = Field(..., description="Size of content")
+
+
+class UnifiedTimelineResponse(BaseModel):
+    """Response for unified timeline"""
+    success: bool = True
+    meeting_id: str = Field(..., description="Meeting ID")
+    total_edits: int = Field(..., description="Total number of edits")
+    timeline: List[TimelineEntry] = Field(..., description="Chronological list of all edits")

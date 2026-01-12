@@ -3,6 +3,7 @@ from config.settings import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
 from models.schemas import TranscriptionResult, SpeakerSegment
 from typing import List, Optional
 from utils.db_utils import DatabaseUtils
+from services.azure_openai_service import azure_openai_service
 import requests
 import time
 import json
@@ -299,3 +300,115 @@ class TranscribeService:
             return None
         
         return meeting_details.get("transcript")
+    
+
+    def identify_and_replace_speakers(self, transcript: str, meeting_id: str, conn) -> str:
+        """
+        Use LLM to identify speakers and replace generic labels with actual names/roles.
+        
+        Analyzes the conversation to determine:
+        - Who is the advisor (asking questions, providing advice)
+        - Who is the client (discussing personal finances, seeking help)
+        - Extract actual names if mentioned in conversation
+        
+        Args:
+            transcript: Raw transcript with generic speaker labels (Speaker 1, Speaker 2, etc.)
+            meeting_id: Meeting ID to fetch advisor/client names as fallback
+            conn: Database connection
+        
+        Returns:
+            Cleaned transcript with meaningful speaker labels
+        """
+        try:
+            from utils.db_utils import DatabaseUtils
+            
+            # Get advisor and client names from database as fallback
+            db = DatabaseUtils(conn)
+            meeting = db.get_meeting(meeting_id)
+            
+            advisor_name = "Advisor"
+            client_name = "Client"
+            
+            if meeting:
+                if meeting.get("advisor_id"):
+                    advisor = db.get_advisor(meeting["advisor_id"])
+                    if advisor:
+                        advisor_name = advisor.get("name", "Advisor")
+                
+                if meeting.get("client_id"):
+                    client = db.get_client(meeting["client_id"])
+                    if client:
+                        client_name = client.get("name", "Client")
+            
+            # Prepare LLM prompt for speaker identification
+            system_prompt = f"""You are an expert at analyzing financial advisory meeting transcripts.
+
+            Your task is to identify which speaker is the financial advisor and which is the client, then extract their actual names if mentioned.
+
+            IDENTIFICATION CLUES:
+            - Advisor: Asks discovery questions, provides advice, discusses financial products, uses professional language, explains concepts
+            - Client: Answers questions about their situation, discusses personal finances, asks for help, expresses concerns
+
+            NAME EXTRACTION:
+            - Look for direct introductions: "Hi, I'm John", "My name is Sarah"
+            - Look for being addressed: "Nice to meet you, David"
+            - Look for self-references: "I'm Michael", "This is Lisa"
+
+            PARTICIPANTS NAMES FROM DATABASE (we should try to match this to extracted names, but if unsure, fallback on the following names unless they are empty.):
+            - Advisor from database: {advisor_name}
+            - Client from database: {client_name}
+
+            OUTPUT FORMAT:
+            Return a JSON object with speaker mappings. Use format "Name (Role)" if name is found, otherwise just "Role".
+
+            Example 1 (names found):
+            {{"Speaker 1": "{advisor_name} (Advisor)", "Speaker 2": "{client_name} (Client)"}}
+
+            Example 2 (names not found and advisor_name and client_name are empty):
+            {{"Speaker 1": "Advisor", "Speaker 2": "Client"}}
+
+            CRITICAL RULES:
+            1. Only include speakers that actually appear in the transcript (Speaker 1, Speaker 2, etc.)
+            2. Be confident - advisor usually speaks first and asks questions
+            3. If completely unclear, use database names with roles
+            4. Always return valid JSON
+            """
+
+            user_prompt = f"""Analyze this transcript and identify the speakers:
+
+            {transcript}
+
+            Return the speaker mapping as JSON."""
+
+            # Call Azure OpenAI
+            response = azure_openai_service.generate_json_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=0.3  # Low temperature for consistent identification
+            )
+            
+            # Extract speaker mapping from response
+            speaker_mapping = response
+            
+            if not speaker_mapping or not isinstance(speaker_mapping, dict):
+                print(f"Warning: Invalid LLM response for meeting {meeting_id}, using fallback names")
+                # Fallback to database names
+                speaker_mapping = {
+                    "Speaker 1": f"{advisor_name} (Advisor)" if "Advisor" in advisor_name or advisor_name == "Advisor" else f"{advisor_name}",
+                    "Speaker 2": f"{client_name} (Client)" if "Client" in client_name or client_name == "Client" else f"{client_name}"
+                }
+            
+            # Replace speaker labels in transcript
+            cleaned_transcript = transcript
+            for old_label, new_label in speaker_mapping.items():
+                cleaned_transcript = cleaned_transcript.replace(f"{old_label}:", f"{new_label}:")
+            
+            print(f"Speaker identification complete for meeting {meeting_id}")
+            print(f"Mapping: {speaker_mapping}")
+            
+            return cleaned_transcript
+            
+        except Exception as e:
+            print(f"Speaker identification failed for meeting {meeting_id}: {e}")
+            print(f"Returning original transcript unchanged")
+            return transcript  # Return original on failure

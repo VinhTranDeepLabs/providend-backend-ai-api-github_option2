@@ -173,6 +173,21 @@ def create_database_tables(connection):
             edit_datetime TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """
+
+    # Table 10: Meeting Content Versions (Unified versioning for transcript, summary, etc.)
+    create_meeting_content_versions_table = """
+        CREATE TABLE IF NOT EXISTS meeting_content_versions (
+            version_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            meeting_id VARCHAR(100) NOT NULL REFERENCES meetings(meeting_id) ON DELETE CASCADE,
+            content_type VARCHAR(50) NOT NULL CHECK (content_type IN ('transcript', 'summary', 'recommendations', 'questions', 'notes')),
+            version_number INTEGER NOT NULL,
+            content TEXT,
+            created_by VARCHAR(100),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            is_current BOOLEAN DEFAULT FALSE,
+            CONSTRAINT unique_version_per_content UNIQUE (meeting_id, content_type, version_number)
+        );
+    """
     
     print("\nCreating tables...")
     if execute_command(connection, create_advisors_table):
@@ -201,6 +216,9 @@ def create_database_tables(connection):
 
     if execute_command(connection, create_feedback_table):
         print("✓ 'feedback' table created")
+
+    if execute_command(connection, create_meeting_content_versions_table):
+        print("✓ 'meeting_content_versions' table created")
 
     # ==================== ADD PROCESSING COLUMNS TO MEETING_DETAILS ====================
     print("\n--- Adding Processing Columns to meeting_details ---")
@@ -295,6 +313,27 @@ def create_database_tables(connection):
         print("✓ 'client_id' column in meetings is now nullable")
 
 
+    # ---- Add Indexes for performance ----
+    print("\n--- Creating Indexes ---")
+
+    create_version_indexes = """
+        CREATE INDEX IF NOT EXISTS idx_meeting_content_type 
+        ON meeting_content_versions(meeting_id, content_type, version_number);
+        
+        CREATE INDEX IF NOT EXISTS idx_current_version 
+        ON meeting_content_versions(meeting_id, content_type, is_current);
+        
+        CREATE INDEX IF NOT EXISTS idx_version_timeline 
+        ON meeting_content_versions(meeting_id, created_at);
+        
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_current_per_content
+        ON meeting_content_versions(meeting_id, content_type)
+        WHERE is_current = TRUE;
+    """
+
+    if execute_command(connection, create_version_indexes):
+        print("✓ 'meeting_content_versions' indexes created")
+
 
 def drop_database_tables(connection):
     """
@@ -317,6 +356,7 @@ def drop_database_tables(connection):
     drop_clients = "DROP TABLE IF EXISTS clients CASCADE;"
     drop_products = "DROP TABLE IF EXISTS products CASCADE;"
     drop_advisors = "DROP TABLE IF EXISTS advisors CASCADE;"
+    drop_meeting_content_versions = "DROP TABLE IF EXISTS meeting_content_versions CASCADE;"
 
     print("\nDropping tables (if they exist)...")
     if execute_command(connection, drop_feedback):
@@ -335,6 +375,9 @@ def drop_database_tables(connection):
     #     print("✓ 'products' dropped (if existed)")
     # if execute_command(connection, drop_advisors):
     #     print("✓ 'advisors' dropped (if existed)")
+    print("\nDropping tables (if they exist)...")
+    if execute_command(connection, drop_meeting_content_versions):
+        print("✓ 'meeting_content_versions' dropped (if existed)")
 
 def view_table_columns(connection, table_name):
     """
@@ -409,6 +452,7 @@ def main():
             view_table_columns(conn, "client_products")
             view_table_columns(conn, "transcript_aggregator")
             view_table_columns(conn, "feedback")
+            view_table_columns(conn, "meeting_content_versions")
 
             # # # Delete all tables (uncomment to drop)
             # drop_database_tables(conn)

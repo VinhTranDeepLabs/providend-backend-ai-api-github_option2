@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Request, Depends, status, HTTPException
+from fastapi import APIRouter, Request, Depends, status, HTTPException, Query
 from typing import Optional
 from datetime import datetime
 from uuid import uuid4
 from services.meeting_service import MeetingService
-from models.schemas import GetQuestionTrackerResponse, TranscriptSegmentRequest, UpdateSummaryRequest  
+from models.schemas import GetQuestionTrackerResponse, TranscriptSegmentRequest, UpdateSummaryRequest
 
 router = APIRouter()
 meeting_service = MeetingService()
@@ -925,23 +925,27 @@ async def update_meeting_status(
 @router.patch("/{meeting_id}/summary")
 async def update_meeting_summary(
     meeting_id: str,
-    request: UpdateSummaryRequest,  # Changed from summary: str parameter
+    request: UpdateSummaryRequest,
+    created_by: str = Query("SYSTEM", description="Advisor ID who made the edit"),
     conn=Depends(get_conn)
 ):
     """
     Update meeting summary.
+    Automatically creates a new version.
     
     Args:
         meeting_id: The meeting ID
         request: Request body containing summary content
+        created_by: Advisor ID who made the edit
     
     Returns:
         Update confirmation
     """
     result = meeting_service.update_meeting_summary(
         meeting_id, 
-        request.summary,  # Changed from summary to request.summary
-        conn
+        request.summary,
+        created_by=created_by,
+        conn=conn
     )
     
     if not result.get("success"):
@@ -952,7 +956,7 @@ async def update_meeting_summary(
     
     return {
         "success": True,
-        "message": "Summary updated successfully",
+        "message": "Summary updated successfully (new version created)",
         "meeting_id": meeting_id
     }
 
@@ -962,15 +966,18 @@ async def update_meeting_transcript(
     meeting_id: str,
     transcript: str,
     append: bool = False,
+    created_by: str = Query("SYSTEM", description="Advisor ID who made the edit"),
     conn=Depends(get_conn)
 ):
     """
     Update or append to meeting transcript.
+    Automatically creates a new version.
     
     Args:
         meeting_id: The meeting ID
         transcript: Transcript content
         append: If True, append to existing transcript; if False, replace (default: False)
+        created_by: Advisor ID who made the edit
     
     Returns:
         Update confirmation
@@ -978,7 +985,12 @@ async def update_meeting_transcript(
     if append:
         result = meeting_service.append_to_transcript(meeting_id, transcript, conn=conn)
     else:
-        result = meeting_service.update_meeting_transcript(meeting_id, transcript, conn=conn)
+        result = meeting_service.update_meeting_transcript(
+            meeting_id, 
+            transcript, 
+            created_by=created_by,
+            conn=conn
+        )
     
     if not result.get("success"):
         raise HTTPException(
@@ -988,7 +1000,7 @@ async def update_meeting_transcript(
     
     return {
         "success": True,
-        "message": "Transcript updated successfully" if not append else "Transcript appended successfully",
+        "message": "Transcript updated successfully (new version created)" if not append else "Transcript appended successfully",
         "meeting_id": meeting_id
     }
 
@@ -1156,3 +1168,294 @@ async def delete_transcript_segment(
         "meeting_id": meeting_id,
         "segment_index": segment_index
     }
+
+@router.get("/{meeting_id}/transcript/versions")
+async def list_transcript_versions(meeting_id: str, conn=Depends(get_conn)):
+    """
+    List all transcript versions for a meeting.
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        List of transcript versions (metadata only, no full content)
+    """
+    result = meeting_service.get_content_version_history(
+        meeting_id=meeting_id,
+        content_type='transcript',
+        conn=conn
+    )
+    
+    return result
+
+
+@router.get("/{meeting_id}/transcript/versions/{version_number}")
+async def get_transcript_version(
+    meeting_id: str,
+    version_number: int,
+    conn=Depends(get_conn)
+):
+    """
+    Get a specific transcript version with full content.
+    
+    Args:
+        meeting_id: The meeting ID
+        version_number: Version number to retrieve
+    
+    Returns:
+        Full transcript version details
+    """
+    result = meeting_service.get_content_version(
+        meeting_id=meeting_id,
+        content_type='transcript',
+        version_number=version_number,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result.get("message", "Version not found")
+        )
+    
+    return result
+
+
+@router.get("/{meeting_id}/transcript/versions/compare")
+async def compare_transcript_versions(
+    meeting_id: str,
+    v1: int = Query(..., description="First version number"),
+    v2: int = Query(..., description="Second version number"),
+    conn=Depends(get_conn)
+):
+    """
+    Compare two transcript versions side-by-side.
+    
+    Args:
+        meeting_id: The meeting ID
+        v1: First version number
+        v2: Second version number
+    
+    Returns:
+        Both versions for comparison
+    """
+    result = meeting_service.compare_content_versions(
+        meeting_id=meeting_id,
+        content_type='transcript',
+        v1=v1,
+        v2=v2,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result.get("message", "Versions not found")
+        )
+    
+    return result
+
+
+@router.post("/{meeting_id}/transcript/versions/{version_number}/rollback")
+async def rollback_transcript_version(
+    meeting_id: str,
+    version_number: int,
+    created_by: str = Query("SYSTEM", description="Advisor ID who triggered rollback"),
+    conn=Depends(get_conn)
+):
+    """
+    Rollback transcript to a previous version.
+    
+    This will:
+    1. Restore the transcript content from the specified version
+    2. Update meeting_details.transcript
+    3. Mark the version as current
+    4. Create a new version entry to track the rollback
+    
+    Args:
+        meeting_id: The meeting ID
+        version_number: Version to rollback to
+        created_by: Who triggered the rollback
+    
+    Returns:
+        Success confirmation with restored content
+    """
+    result = meeting_service.rollback_content_to_version(
+        meeting_id=meeting_id,
+        content_type='transcript',
+        version_number=version_number,
+        created_by=created_by,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to rollback")
+        )
+    
+    return {
+        "success": True,
+        "message": f"Transcript rolled back to version {version_number}",
+        "meeting_id": meeting_id,
+        "restored_version": version_number
+    }
+
+
+# ==================== VERSION ENDPOINTS - SUMMARY ====================
+
+@router.get("/{meeting_id}/summary/versions")
+async def list_summary_versions(meeting_id: str, conn=Depends(get_conn)):
+    """
+    List all summary versions for a meeting.
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        List of summary versions (metadata only, no full content)
+    """
+    result = meeting_service.get_content_version_history(
+        meeting_id=meeting_id,
+        content_type='summary',
+        conn=conn
+    )
+    
+    return result
+
+
+@router.get("/{meeting_id}/summary/versions/{version_number}")
+async def get_summary_version(
+    meeting_id: str,
+    version_number: int,
+    conn=Depends(get_conn)
+):
+    """
+    Get a specific summary version with full content.
+    
+    Args:
+        meeting_id: The meeting ID
+        version_number: Version number to retrieve
+    
+    Returns:
+        Full summary version details
+    """
+    result = meeting_service.get_content_version(
+        meeting_id=meeting_id,
+        content_type='summary',
+        version_number=version_number,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result.get("message", "Version not found")
+        )
+    
+    return result
+
+
+@router.get("/{meeting_id}/summary/versions/compare")
+async def compare_summary_versions(
+    meeting_id: str,
+    v1: int = Query(..., description="First version number"),
+    v2: int = Query(..., description="Second version number"),
+    conn=Depends(get_conn)
+):
+    """
+    Compare two summary versions side-by-side.
+    
+    Args:
+        meeting_id: The meeting ID
+        v1: First version number
+        v2: Second version number
+    
+    Returns:
+        Both versions for comparison
+    """
+    result = meeting_service.compare_content_versions(
+        meeting_id=meeting_id,
+        content_type='summary',
+        v1=v1,
+        v2=v2,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result.get("message", "Versions not found")
+        )
+    
+    return result
+
+
+@router.post("/{meeting_id}/summary/versions/{version_number}/rollback")
+async def rollback_summary_version(
+    meeting_id: str,
+    version_number: int,
+    created_by: str = Query("SYSTEM", description="Advisor ID who triggered rollback"),
+    conn=Depends(get_conn)
+):
+    """
+    Rollback summary to a previous version.
+    
+    This will:
+    1. Restore the summary content from the specified version
+    2. Update meeting_details.summary
+    3. Mark the version as current
+    4. Create a new version entry to track the rollback
+    
+    Args:
+        meeting_id: The meeting ID
+        version_number: Version to rollback to
+        created_by: Who triggered the rollback
+    
+    Returns:
+        Success confirmation with restored content
+    """
+    result = meeting_service.rollback_content_to_version(
+        meeting_id=meeting_id,
+        content_type='summary',
+        version_number=version_number,
+        created_by=created_by,
+        conn=conn
+    )
+    
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("message", "Failed to rollback")
+        )
+    
+    return {
+        "success": True,
+        "message": f"Summary rolled back to version {version_number}",
+        "meeting_id": meeting_id,
+        "restored_version": version_number
+    }
+
+
+# ==================== UNIFIED TIMELINE ENDPOINT ====================
+
+@router.get("/{meeting_id}/versions/timeline")
+async def get_unified_timeline(meeting_id: str, conn=Depends(get_conn)):
+    """
+    Get unified timeline of all edits (transcript + summary) in chronological order.
+    
+    This shows the complete editing history of the meeting across all content types.
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        Chronological list of all edits
+    """
+    result = meeting_service.get_unified_edit_timeline(
+        meeting_id=meeting_id,
+        conn=conn
+    )
+    
+    return result
+

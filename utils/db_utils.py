@@ -1629,3 +1629,393 @@ class DatabaseUtils:
         except Error as e:
             self.conn.rollback()
             return {"success": False, "message": f"Error deleting feedback: {e}"}
+        
+        
+    # ==================== CONTENT VERSION OPERATIONS ====================
+    def create_content_version(self, meeting_id: str, content_type: str, content: str, 
+                              created_by: str = "SYSTEM") -> Dict[str, Any]:
+        """
+        Create a new content version (auto-increments version_number)
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: Type of content ('transcript', 'summary', 'recommendations', 'questions', 'notes')
+            content: The actual content (with <del> tags for edits)
+            created_by: advisor_id or 'SYSTEM'/'AI_PROCESSOR'
+        
+        Returns:
+            Dict with success status and version details
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Get next version number for this content type
+            cursor.execute("""
+                SELECT COALESCE(MAX(version_number), 0) + 1
+                FROM meeting_content_versions
+                WHERE meeting_id = %s AND content_type = %s;
+            """, (meeting_id, content_type))
+            next_version = cursor.fetchone()[0]
+            
+            # Set previous current version to false
+            cursor.execute("""
+                UPDATE meeting_content_versions
+                SET is_current = FALSE
+                WHERE meeting_id = %s AND content_type = %s AND is_current = TRUE;
+            """, (meeting_id, content_type))
+            
+            # Insert new version
+            cursor.execute("""
+                INSERT INTO meeting_content_versions 
+                (meeting_id, content_type, version_number, content, created_by, created_at, is_current)
+                VALUES (%s, %s, %s, %s, %s, NOW(), TRUE)
+                RETURNING version_id, version_number, created_at;
+            """, (meeting_id, content_type, next_version, content, created_by))
+            
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            
+            return {
+                "success": True,
+                "message": f"{content_type.capitalize()} version {next_version} created",
+                "version_id": result[0],
+                "version_number": result[1],
+                "created_at": result[2]
+            }
+            
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error creating version: {e}"}
+    
+    def get_content_version(self, meeting_id: str, content_type: str, 
+                           version_number: int) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific content version
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: Type of content
+            version_number: Version number to retrieve
+        
+        Returns:
+            Version details or None
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT version_id, meeting_id, content_type, version_number, 
+                       content, created_by, created_at, is_current
+                FROM meeting_content_versions
+                WHERE meeting_id = %s AND content_type = %s AND version_number = %s;
+            """, (meeting_id, content_type, version_number))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            
+            if result:
+                return {
+                    "version_id": result[0],
+                    "meeting_id": result[1],
+                    "content_type": result[2],
+                    "version_number": result[3],
+                    "content": result[4],
+                    "created_by": result[5],
+                    "created_at": result[6],
+                    "is_current": result[7]
+                }
+            return None
+            
+        except Error as e:
+            print(f"Error fetching version: {e}")
+            return None
+    
+    def list_content_versions(self, meeting_id: str, 
+                             content_type: str = None) -> List[Dict[str, Any]]:
+        """
+        List all versions for a meeting (optionally filtered by content_type)
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: Optional filter for specific content type
+        
+        Returns:
+            List of versions (without full content, just metadata)
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            if content_type:
+                query = """
+                    SELECT version_id, meeting_id, content_type, version_number,
+                           created_by, created_at, is_current,
+                           LENGTH(content) as content_length
+                    FROM meeting_content_versions
+                    WHERE meeting_id = %s AND content_type = %s
+                    ORDER BY version_number DESC;
+                """
+                cursor.execute(query, (meeting_id, content_type))
+            else:
+                query = """
+                    SELECT version_id, meeting_id, content_type, version_number,
+                           created_by, created_at, is_current,
+                           LENGTH(content) as content_length
+                    FROM meeting_content_versions
+                    WHERE meeting_id = %s
+                    ORDER BY created_at DESC;
+                """
+                cursor.execute(query, (meeting_id,))
+            
+            results = cursor.fetchall()
+            cursor.close()
+            
+            versions = []
+            for row in results:
+                versions.append({
+                    "version_id": row[0],
+                    "meeting_id": row[1],
+                    "content_type": row[2],
+                    "version_number": row[3],
+                    "created_by": row[4],
+                    "created_at": row[5],
+                    "is_current": row[6],
+                    "content_length": row[7]
+                })
+            
+            return versions
+            
+        except Error as e:
+            print(f"Error listing versions: {e}")
+            return []
+    
+    def get_current_content_version(self, meeting_id: str, 
+                                    content_type: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the current (active) version for a specific content type
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: Type of content
+        
+        Returns:
+            Current version details or None
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT version_id, meeting_id, content_type, version_number,
+                       content, created_by, created_at, is_current
+                FROM meeting_content_versions
+                WHERE meeting_id = %s AND content_type = %s AND is_current = TRUE;
+            """, (meeting_id, content_type))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            
+            if result:
+                return {
+                    "version_id": result[0],
+                    "meeting_id": result[1],
+                    "content_type": result[2],
+                    "version_number": result[3],
+                    "content": result[4],
+                    "created_by": result[5],
+                    "created_at": result[6],
+                    "is_current": result[7]
+                }
+            return None
+            
+        except Error as e:
+            print(f"Error fetching current version: {e}")
+            return None
+    
+    def set_current_content_version(self, meeting_id: str, content_type: str, 
+                                   version_number: int) -> Dict[str, Any]:
+        """
+        Mark a specific version as current (used for rollback)
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: Type of content
+            version_number: Version to make current
+        
+        Returns:
+            Success status
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Verify version exists
+            cursor.execute("""
+                SELECT version_id FROM meeting_content_versions
+                WHERE meeting_id = %s AND content_type = %s AND version_number = %s;
+            """, (meeting_id, content_type, version_number))
+            
+            if not cursor.fetchone():
+                cursor.close()
+                return {"success": False, "message": "Version not found"}
+            
+            # Set all versions to not current
+            cursor.execute("""
+                UPDATE meeting_content_versions
+                SET is_current = FALSE
+                WHERE meeting_id = %s AND content_type = %s;
+            """, (meeting_id, content_type))
+            
+            # Set target version to current
+            cursor.execute("""
+                UPDATE meeting_content_versions
+                SET is_current = TRUE
+                WHERE meeting_id = %s AND content_type = %s AND version_number = %s;
+            """, (meeting_id, content_type, version_number))
+            
+            self.conn.commit()
+            cursor.close()
+            
+            return {
+                "success": True,
+                "message": f"Version {version_number} is now current"
+            }
+            
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error setting current version: {e}"}
+    
+    def rollback_content_to_version(self, meeting_id: str, content_type: str, 
+                                   version_number: int) -> Dict[str, Any]:
+        """
+        Rollback content to a previous version (makes it current and updates meeting_details)
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: Type of content ('transcript' or 'summary')
+            version_number: Version to rollback to
+        
+        Returns:
+            Success status with content
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Get the version content
+            cursor.execute("""
+                SELECT content FROM meeting_content_versions
+                WHERE meeting_id = %s AND content_type = %s AND version_number = %s;
+            """, (meeting_id, content_type, version_number))
+            
+            result = cursor.fetchone()
+            if not result:
+                cursor.close()
+                return {"success": False, "message": "Version not found"}
+            
+            content = result[0]
+            
+            # Set this version as current
+            cursor.execute("""
+                UPDATE meeting_content_versions
+                SET is_current = FALSE
+                WHERE meeting_id = %s AND content_type = %s;
+            """, (meeting_id, content_type))
+            
+            cursor.execute("""
+                UPDATE meeting_content_versions
+                SET is_current = TRUE
+                WHERE meeting_id = %s AND content_type = %s AND version_number = %s;
+            """, (meeting_id, content_type, version_number))
+            
+            # Update meeting_details table with this content
+            if content_type == 'transcript':
+                cursor.execute("""
+                    UPDATE meeting_details
+                    SET transcript = %s, updated_datetime = NOW()
+                    WHERE meeting_id = %s;
+                """, (content, meeting_id))
+            elif content_type == 'summary':
+                cursor.execute("""
+                    UPDATE meeting_details
+                    SET summary = %s, updated_datetime = NOW()
+                    WHERE meeting_id = %s;
+                """, (content, meeting_id))
+            
+            self.conn.commit()
+            cursor.close()
+            
+            return {
+                "success": True,
+                "message": f"Rolled back to version {version_number}",
+                "content": content,
+                "version_number": version_number
+            }
+            
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error rolling back: {e}"}
+    
+    def get_content_version_count(self, meeting_id: str, content_type: str) -> int:
+        """
+        Count total versions for a specific content type
+        
+        Args:
+            meeting_id: Meeting identifier
+            content_type: Type of content
+        
+        Returns:
+            Number of versions
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) FROM meeting_content_versions
+                WHERE meeting_id = %s AND content_type = %s;
+            """, (meeting_id, content_type))
+            
+            count = cursor.fetchone()[0]
+            cursor.close()
+            return count
+            
+        except Error as e:
+            print(f"Error counting versions: {e}")
+            return 0
+    
+    def get_unified_timeline(self, meeting_id: str) -> List[Dict[str, Any]]:
+        """
+        Get unified timeline of all edits across all content types
+        
+        Args:
+            meeting_id: Meeting identifier
+        
+        Returns:
+            List of all versions sorted chronologically
+        """
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT version_id, meeting_id, content_type, version_number,
+                       created_by, created_at, is_current,
+                       LENGTH(content) as content_length
+                FROM meeting_content_versions
+                WHERE meeting_id = %s
+                ORDER BY created_at DESC;
+            """, (meeting_id,))
+            
+            results = cursor.fetchall()
+            cursor.close()
+            
+            timeline = []
+            for row in results:
+                timeline.append({
+                    "version_id": row[0],
+                    "meeting_id": row[1],
+                    "content_type": row[2],
+                    "version_number": row[3],
+                    "created_by": row[4],
+                    "created_at": row[5],
+                    "is_current": row[6],
+                    "content_length": row[7]
+                })
+            
+            return timeline
+            
+        except Error as e:
+            print(f"Error fetching timeline: {e}")
+            return []
