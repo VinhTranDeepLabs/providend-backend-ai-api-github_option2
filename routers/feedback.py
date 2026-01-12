@@ -16,7 +16,7 @@ def get_conn(request: Request):
 
 # ==================== POST METHODS ====================
 
-@router.post("/")
+@router.post("/create")
 async def create_feedback(
     meeting_id: str,
     feedback: str,
