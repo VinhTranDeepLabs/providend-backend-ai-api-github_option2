@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime
 from uuid import uuid4
 from services.meeting_service import MeetingService
-from models.schemas import GetQuestionTrackerResponse, TranscriptSegmentRequest
+from models.schemas import GetQuestionTrackerResponse, TranscriptSegmentRequest, UpdateSummaryRequest  
 
 router = APIRouter()
 meeting_service = MeetingService()
@@ -925,7 +925,7 @@ async def update_meeting_status(
 @router.patch("/{meeting_id}/summary")
 async def update_meeting_summary(
     meeting_id: str,
-    summary: str,
+    request: UpdateSummaryRequest,  # Changed from summary: str parameter
     conn=Depends(get_conn)
 ):
     """
@@ -933,12 +933,16 @@ async def update_meeting_summary(
     
     Args:
         meeting_id: The meeting ID
-        summary: Summary content
+        request: Request body containing summary content
     
     Returns:
         Update confirmation
     """
-    result = meeting_service.update_meeting_summary(meeting_id, summary, conn=conn)
+    result = meeting_service.update_meeting_summary(
+        meeting_id, 
+        request.summary,  # Changed from summary to request.summary
+        conn
+    )
     
     if not result.get("success"):
         raise HTTPException(

@@ -20,6 +20,10 @@ class AutofillQuestionsRequest(BaseModel):
     transcript: str = Field(..., description="The transcript text to process")
     meeting_id: Optional[str] = Field(None, description="Optional meeting ID associated with the transcript")
 
+class UpdateSummaryRequest(BaseModel):
+    """Request model for updating meeting summary"""
+    summary: str = Field(..., description="Meeting summary content")
+
 
 # Response Models
 class SummaryResponse(BaseModel):
