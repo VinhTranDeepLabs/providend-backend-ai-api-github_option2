@@ -364,7 +364,7 @@ class TranscribeService:
             # Prepare LLM prompt for speaker identification
             system_prompt = f"""You are an expert at analyzing financial advisory meeting transcripts.
 
-            Your task is to identify which speaker is the financial advisor and which is the client.
+            Your task is to identify which speaker is the financial advisor and which is the client. There will always be at least 1 advisor and 1 client. There may be additional guests which are considered clients.
 
             IDENTIFICATION CLUES:
             - Advisor: Asks discovery questions, provides advice, discusses financial products, uses professional language, explains concepts, leads the meeting
@@ -387,7 +387,7 @@ class TranscribeService:
             OUTPUT FORMAT:
             Return a JSON object mapping each speaker ID to their identity.
             - Use "Name (Role)" format if name is available
-            - Use just "Role" if no name is available
+            - Use just "Guest_x (Client)" if no name is available
 
             Examples for 2 guests only:
             {{"Guest-1": "{advisor_name} (Advisor)", "Guest-2": "{client_name} (Client)"}}
