@@ -4,9 +4,12 @@ from models.schemas import TranscriptionResult, SpeakerSegment
 from typing import List, Optional
 from utils.db_utils import DatabaseUtils
 from services.azure_openai_service import azure_openai_service
+from dot_env import load_dotenv
 import requests
 import time
 import json
+
+load_dotenv()
 
 class TranscribeService:
     def __init__(self):
@@ -320,8 +323,6 @@ class TranscribeService:
             Cleaned transcript with meaningful speaker labels
         """
         try:
-            from utils.db_utils import DatabaseUtils
-            
             # Get advisor and client names from database as fallback
             db = DatabaseUtils(conn)
             meeting = db.get_meeting(meeting_id)
@@ -339,6 +340,13 @@ class TranscribeService:
                     client = db.get_client(meeting["client_id"])
                     if client:
                         client_name = client.get("name", "Client")
+
+            #Reduce transcript only for identifying speakers
+            transcript_list = json.loads(transcript)
+            max_back_and_forth = int(os.getenv("PROCESSOR_TRANSCRIPT_IDNTIFY_LENGTH", 20))
+            reduced_transcript = transcript_list[:max_back_and_forth]
+
+
             
             # Prepare LLM prompt for speaker identification
             system_prompt = f"""You are an expert at analyzing financial advisory meeting transcripts.
@@ -346,7 +354,7 @@ class TranscribeService:
             Your task is to identify which speaker is the financial advisor and which is the client, then extract their actual names if mentioned.
 
             IDENTIFICATION CLUES:
-            - Advisor: Asks discovery questions, provides advice, discusses financial products, uses professional language, explains concepts
+            - Advisor: Asks discovery questions, provides advice, discusses financial products, uses professional language, explains concepts, leads the meeting
             - Client: Answers questions about their situation, discusses personal finances, asks for help, expresses concerns
 
             NAME EXTRACTION:
@@ -376,7 +384,7 @@ class TranscribeService:
 
             user_prompt = f"""Analyze this transcript and identify the speakers:
 
-            {transcript}
+            {reduced_transcript}
 
             Return the speaker mapping as JSON."""
 
