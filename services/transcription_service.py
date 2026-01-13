@@ -8,6 +8,19 @@ from dotenv import load_dotenv
 import requests
 import time
 import json
+import logging
+import os
+
+# ==================== LOGGING SETUP ====================
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('meeting_processor.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -98,7 +111,7 @@ class TranscribeService:
             }
 
         # Step 1: Create transcription job
-        print(f"Creating transcription job for: {audio_urls}")
+        logger.info(f"Creating transcription job for: {audio_urls}")
         create_response = requests.post(transcriptions_url, headers=headers, json=job_config)
 
         if create_response.status_code != 201:
@@ -107,7 +120,7 @@ class TranscribeService:
         job_data = create_response.json()
         job_url = job_data['self']
         job_id = job_url.split('/')[-1]
-        print(f"Job created: {job_id}")
+        logger.info(f"Job created: {job_id}")
 
         # Step 2: Poll for completion
         max_wait_time = 600  # 10 minutes
@@ -126,7 +139,7 @@ class TranscribeService:
             job_status = status_response.json()
             status = job_status['status']
 
-            print(f"Status: {status} (elapsed: {elapsed_time}s)")
+            logger.info(f"Status: {status} (elapsed: {elapsed_time}s)")
 
             if status == 'Succeeded':
                 break
@@ -162,7 +175,7 @@ class TranscribeService:
             transcript_response = requests.get(transcript_url)
 
             if transcript_response.status_code != 200:
-                print(f"Warning: Failed to download transcript: {transcript_response.text}")
+                logger.info(f"Warning: Failed to download transcript: {transcript_response.text}")
                 continue
 
             transcript_json = transcript_response.json()
@@ -233,7 +246,7 @@ class TranscribeService:
         # Step 6: Cleanup - delete job
         try:
             requests.delete(job_url, headers=headers)
-            print(f"Job {job_id} deleted")
+            logger.info(f"Job {job_id} deleted")
         except:
             pass
 
@@ -370,13 +383,13 @@ class TranscribeService:
             Return a JSON object with speaker mappings. Use format "Name (Role)" if name is found, otherwise just "Role".
 
             Example 1 (names found):
-            {{"Speaker 1": "{advisor_name} (Advisor)", "Speaker 2": "{client_name} (Client)"}}
+            {{"Guest-1": "{advisor_name} (Advisor)", "Guest-2": "{client_name} (Client)"}}
 
             Example 2 (names not found and advisor_name and client_name are empty):
-            {{"Speaker 1": "Advisor", "Speaker 2": "Client"}}
+            {{"Guest-1": "Advisor", "Guest-2": "Client"}}
 
             CRITICAL RULES:
-            1. Only include speakers that actually appear in the transcript (Speaker 1, Speaker 2, etc.)
+            1. Only include speakers that actually appear in the transcript (Guest-1, Guest-2, etc.)
             2. Be confident - advisor usually speaks first and asks questions
             3. If completely unclear, use database names with roles
             4. Always return valid JSON
@@ -399,7 +412,7 @@ class TranscribeService:
             speaker_mapping = response
             
             if not speaker_mapping or not isinstance(speaker_mapping, dict):
-                print(f"Warning: Invalid LLM response for meeting {meeting_id}, using fallback names")
+                logger.info(f"Warning: Invalid LLM response for meeting {meeting_id}, using fallback names")
                 # Fallback to database names
                 speaker_mapping = {
                     "Speaker 1": f"{advisor_name} (Advisor)" if "Advisor" in advisor_name or advisor_name == "Advisor" else f"{advisor_name}",
@@ -409,14 +422,14 @@ class TranscribeService:
             # Replace speaker labels in transcript
             cleaned_transcript = transcript
             for old_label, new_label in speaker_mapping.items():
-                cleaned_transcript = cleaned_transcript.replace(f"{old_label}:", f"{new_label}:")
+                cleaned_transcript = cleaned_transcript.replace(f"{old_label}", f"{new_label}")
             
-            print(f"Speaker identification complete for meeting {meeting_id}")
-            print(f"Mapping: {speaker_mapping}")
+            logger.info(f"Speaker identification complete for meeting {meeting_id}")
+            logger.info(f"Mapping: {speaker_mapping}")
             
             return cleaned_transcript
             
         except Exception as e:
-            print(f"Speaker identification failed for meeting {meeting_id}: {e}")
-            print(f"Returning original transcript unchanged")
+            logger.info(f"Speaker identification failed for meeting {meeting_id}: {e}")
+            logger.info(f"Returning original transcript unchanged")
             return transcript  # Return original on failure

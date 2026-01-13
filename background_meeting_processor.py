@@ -323,6 +323,7 @@ def process_single_meeting(meeting: Dict, conn) -> bool:
         
         # Use cleaned transcript for all subsequent processing
         transcript = cleaned_transcript
+        logger.info(f"Clearned Transcript: {transcript}")
         logger.info(f"[{meeting_id}] ✓ Transcript updated with identified speakers")
         
     except Exception as e:

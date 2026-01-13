@@ -48,8 +48,8 @@ IMPORTANT: The participants in this meeting are:
 - Client: {client_name}
 
 When writing the summary, you need to analyze the transcript of a meeting that will be given to you to understand who is the advisor and who is the client. 
-If there is a 3rd or 4th speaker, identify their role as well and name them accordingly based on transcript if possible, else use Client 2, client 3.
-Use these actual names instead of generic labels like "Speaker 1", "Speaker 2", "the advisor", or "the client". For example:
+If there is a 3rd or 4th guest, identify their role as well and name them accordingly based on transcript if possible, else use Client 2, client 3.
+Use these actual names instead of generic labels like "Guest-1", "Guest-2", "the advisor", or "the client". For example:
 - Instead of "The advisor explained...", write "{advisor_name} explained..."
 - Instead of "The client mentioned...", write "{client_name} mentioned..."
 """
@@ -94,7 +94,7 @@ Participant Attribution:
 - Use the actual participant names provided above throughout the summary
 - Maintain clarity about who provided advice vs. who asked questions
 - Document which advisor is responsible for specific follow-up actions
-- NEVER use generic labels like "Speaker 1", "Speaker 2", "the advisor", or "the client"
+- NEVER use generic labels like "Guest-1", "Guest-2", "the advisor", or "the client"
 
 Contextual Information:
 - Include relevant background information that explains current decisions
