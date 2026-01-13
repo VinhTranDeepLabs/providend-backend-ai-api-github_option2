@@ -4,7 +4,7 @@ from models.schemas import TranscriptionResult, SpeakerSegment
 from typing import List, Optional
 from utils.db_utils import DatabaseUtils
 from services.azure_openai_service import azure_openai_service
-from dot_env import load_dotenv
+from dotenv import load_dotenv
 import requests
 import time
 import json
