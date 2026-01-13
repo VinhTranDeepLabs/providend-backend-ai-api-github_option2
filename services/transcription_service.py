@@ -364,35 +364,40 @@ class TranscribeService:
             # Prepare LLM prompt for speaker identification
             system_prompt = f"""You are an expert at analyzing financial advisory meeting transcripts.
 
-            Your task is to identify which speaker is the financial advisor and which is the client, then extract their actual names if mentioned.
+            Your task is to identify which speaker is the financial advisor and which is the client.
 
             IDENTIFICATION CLUES:
             - Advisor: Asks discovery questions, provides advice, discusses financial products, uses professional language, explains concepts, leads the meeting
             - Client: Answers questions about their situation, discusses personal finances, asks for help, expresses concerns
 
-            NAME EXTRACTION:
-            - Look for direct introductions: "Hi, I'm John", "My name is Sarah"
-            - Look for being addressed: "Nice to meet you, David"
-            - Look for self-references: "I'm Michael", "This is Lisa"
-
-            PARTICIPANTS NAMES FROM DATABASE (we should try to match this to extracted names, but if unsure, fallback on the following names unless they are empty.):
-            - Advisor from database: {advisor_name}
-            - Client from database: {client_name}
+            NAME ASSIGNMENT LOGIC:
+            {
+            f'''- Advisor name from database: "{advisor_name}"
+            - Client name from database: "{client_name}"
+            - USE THESE DATABASE NAMES - do not extract names from the transcript unless there is more than 2 guests, then you should extract the name of the 3rd party if mentioned.''' 
+            if advisor_name and client_name 
+            else '''- No names provided in database.
+            - EXTRACT names from the transcript if mentioned:
+            * Look for direct introductions: "Hi, I'm John", "My name is Sarah"
+            * Look for being addressed: "Nice to meet you, David"
+            * Look for self-references: "I'm Michael", "This is Lisa"
+            - If names are not clearly mentioned in the transcript, use only the roles without names.'''
+            }
 
             OUTPUT FORMAT:
-            Return a JSON object with speaker mappings. Use format "Name (Role)" if name is found, otherwise just "Role".
+            Return a JSON object mapping each speaker ID to their identity.
+            - Use "Name (Role)" format if name is available
+            - Use just "Role" if no name is available
 
-            Example 1 (names found):
+            Examples for 2 guests only:
             {{"Guest-1": "{advisor_name} (Advisor)", "Guest-2": "{client_name} (Client)"}}
-
-            Example 2 (names not found and advisor_name and client_name are empty):
             {{"Guest-1": "Advisor", "Guest-2": "Client"}}
 
             CRITICAL RULES:
-            1. Only include speakers that actually appear in the transcript (Guest-1, Guest-2, etc.)
-            2. Be confident - advisor usually speaks first and asks questions
-            3. If completely unclear, use database names with roles
-            4. Always return valid JSON
+            1. Only include speaker IDs that actually appear in the transcript (Guest-1, Guest-2, etc.)
+            2. The advisor usually speaks first and asks questions
+            3. Always return valid JSON
+            4. Follow the name assignment logic strictly
             """
 
             user_prompt = f"""Analyze this transcript and identify the speakers:
