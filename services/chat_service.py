@@ -157,10 +157,10 @@ Meeting Context:
 - Meeting ID: {meeting_id}
 
 Meeting Transcript:
-{transcript[:5000] if transcript else "No transcript available"}
+{transcript if transcript else "No transcript available"}
 
 Meeting Summary:
-{summary[:2000] if summary else "No summary available"}
+{summary if summary else "No summary available"}
 
 {chat_history_text}
 

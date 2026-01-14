@@ -79,7 +79,7 @@ async def send_message(
     conn=Depends(get_conn)
 ):
     """
-    Send a message and get AI response.
+    Send a message and get AI response with complete chat history.
     
     Auto-creates chat if none exists for this meeting.
     Fetches fresh transcript + summary from meeting_details on every call.
@@ -90,7 +90,7 @@ async def send_message(
         request: Message request with text and optional chart_data
     
     Returns:
-        AI response with message IDs
+        AI response with message IDs and complete chat history
     """
     # Get meeting to extract advisor_id
     meeting_service = MeetingService()
@@ -114,6 +114,13 @@ async def send_message(
             conn=conn
         )
         
+        # Fetch complete chat history including the new messages
+        chat_history = chat_service.get_chat_history(
+            meeting_id=meeting_id,
+            user_id=advisor_id,
+            conn=conn
+        )
+        
         return {
             "success": True,
             "message": "Message sent successfully",
@@ -121,7 +128,11 @@ async def send_message(
                 "chat_id": result["chat_id"],
                 "user_message_id": result["user_message_id"],
                 "bot_message_id": result["bot_message_id"],
-                "bot_response": result["bot_response"]
+                "bot_response": result["bot_response"],
+                "chat_history": {
+                    "total_messages": chat_history["total_messages"],
+                    "messages": chat_history["messages"]
+                }
             }
         }
     except Exception as e:
