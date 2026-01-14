@@ -350,3 +350,60 @@ class UnifiedTimelineResponse(BaseModel):
     meeting_id: str = Field(..., description="Meeting ID")
     total_edits: int = Field(..., description="Total number of edits")
     timeline: List[TimelineEntry] = Field(..., description="Chronological list of all edits")
+
+
+# ==================== CHAT SCHEMAS ====================
+
+class SendMessageRequest(BaseModel):
+    """Request model for sending a chat message"""
+    message: str
+    chart_data: Optional[Dict[str, Any]] = None
+    
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "message": "What were the main goals discussed in this meeting?"
+                },
+                {
+                    "message": "Summarize the recommendations for this client",
+                    "chart_data": {
+                        "chart_title": "Revenue Trend",
+                        "metrics": []
+                    }
+                }
+            ]
+        }
+
+
+class CreateChatResponse(BaseModel):
+    """Response model for creating a new chat"""
+    chat_id: str
+    meeting_id: str
+    created_at: datetime
+
+
+class ChatMessageItem(BaseModel):
+    """Individual chat message"""
+    message_id: str
+    content: str
+    sender_type: str
+    created_at: datetime
+
+
+class SendMessageResponse(BaseModel):
+    """Response model for sending a message"""
+    success: bool = True
+    chat_id: str
+    user_message_id: str
+    bot_message_id: str
+    bot_response: str
+
+
+class ChatHistoryResponse(BaseModel):
+    """Response model for chat history"""
+    success: bool = True
+    chat_id: str
+    meeting_id: str
+    total_messages: int
+    messages: List[ChatMessageItem]

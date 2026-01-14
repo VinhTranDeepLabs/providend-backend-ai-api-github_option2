@@ -2019,3 +2019,175 @@ class DatabaseUtils:
         except Error as e:
             print(f"Error fetching timeline: {e}")
             return []
+        
+
+    # ==================== CHAT OPERATIONS ====================
+    
+    def create_chat(self, chat_id: str, meeting_id: str, user_id: str) -> Dict:
+        """Create a new chat session for a meeting"""
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                INSERT INTO chat (id, meeting_id, user_id, created_at, updated_at)
+                VALUES (%s, %s, %s, NOW(), NOW())
+                RETURNING id, meeting_id, user_id, created_at;
+            """
+            cursor.execute(query, (chat_id, meeting_id, user_id))
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            
+            return {
+                "success": True,
+                "message": "Chat created successfully",
+                "chat_id": result[0],
+                "meeting_id": result[1],
+                "user_id": result[2],
+                "created_at": result[3]
+            }
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error creating chat: {e}"}
+    
+    def get_chat(self, chat_id: str) -> Optional[Dict]:
+        """Get chat by ID"""
+        try:
+            cursor = self.conn.cursor()
+            query = "SELECT id, meeting_id, user_id, created_at, updated_at, deleted_at FROM chat WHERE id = %s;"
+            cursor.execute(query, (chat_id,))
+            result = cursor.fetchone()
+            cursor.close()
+            
+            if result:
+                return {
+                    "chat_id": result[0],
+                    "meeting_id": result[1],
+                    "user_id": result[2],
+                    "created_at": result[3],
+                    "updated_at": result[4],
+                    "deleted_at": result[5]
+                }
+            return None
+        except Error as e:
+            print(f"Error fetching chat: {e}")
+            return None
+    
+    def get_active_chat_for_meeting(self, meeting_id: str) -> Optional[Dict]:
+        """Get active (non-deleted) chat for a meeting"""
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                SELECT id, meeting_id, user_id, created_at, updated_at
+                FROM chat
+                WHERE meeting_id = %s AND deleted_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 1;
+            """
+            cursor.execute(query, (meeting_id,))
+            result = cursor.fetchone()
+            cursor.close()
+            
+            if result:
+                return {
+                    "chat_id": result[0],
+                    "meeting_id": result[1],
+                    "user_id": result[2],
+                    "created_at": result[3],
+                    "updated_at": result[4]
+                }
+            return None
+        except Error as e:
+            print(f"Error fetching active chat: {e}")
+            return None
+    
+    def soft_delete_chat(self, chat_id: str) -> Dict:
+        """Soft delete a chat (set deleted_at timestamp)"""
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                UPDATE chat
+                SET deleted_at = NOW(), updated_at = NOW()
+                WHERE id = %s AND deleted_at IS NULL
+                RETURNING id;
+            """
+            cursor.execute(query, (chat_id,))
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            
+            if result:
+                return {"success": True, "message": "Chat soft deleted successfully"}
+            else:
+                return {"success": False, "message": "Chat not found or already deleted"}
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error soft deleting chat: {e}"}
+    
+    # ==================== MESSAGE OPERATIONS ====================
+    
+    def create_message(self, message_id: str, chat_id: str, content: str, sender_type: str) -> Dict:
+        """Create a new message in a chat"""
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                INSERT INTO message (id, chat_id, content, sender_type, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, NOW(), NOW())
+                RETURNING id, chat_id, content, sender_type, created_at;
+            """
+            cursor.execute(query, (message_id, chat_id, content, sender_type))
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            
+            return {
+                "success": True,
+                "message": "Message created successfully",
+                "message_id": result[0],
+                "chat_id": result[1],
+                "content": result[2],
+                "sender_type": result[3],
+                "created_at": result[4]
+            }
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error creating message: {e}"}
+    
+    def get_chat_messages(self, chat_id: str, include_deleted: bool = False) -> List[Dict]:
+        """Get all messages for a chat, ordered by creation time"""
+        try:
+            cursor = self.conn.cursor()
+            
+            if include_deleted:
+                query = """
+                    SELECT id, chat_id, content, sender_type, created_at, updated_at, deleted_at
+                    FROM message
+                    WHERE chat_id = %s
+                    ORDER BY created_at ASC;
+                """
+            else:
+                query = """
+                    SELECT id, chat_id, content, sender_type, created_at, updated_at, deleted_at
+                    FROM message
+                    WHERE chat_id = %s AND deleted_at IS NULL
+                    ORDER BY created_at ASC;
+                """
+            
+            cursor.execute(query, (chat_id,))
+            results = cursor.fetchall()
+            cursor.close()
+            
+            messages = []
+            for row in results:
+                messages.append({
+                    "message_id": row[0],
+                    "chat_id": row[1],
+                    "content": row[2],
+                    "sender_type": row[3],
+                    "created_at": row[4],
+                    "updated_at": row[5],
+                    "deleted_at": row[6]
+                })
+            return messages
+        except Error as e:
+            print(f"Error fetching chat messages: {e}")
+            return []

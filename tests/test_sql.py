@@ -188,6 +188,31 @@ def create_database_tables(connection):
             CONSTRAINT unique_version_per_content UNIQUE (meeting_id, content_type, version_number)
         );
     """
+
+    # Table 10: Chat
+    create_chat_table = """
+        CREATE TABLE IF NOT EXISTS chat (
+            id VARCHAR(100) PRIMARY KEY,
+            meeting_id VARCHAR(100) REFERENCES meetings(meeting_id) ON DELETE CASCADE,
+            user_id VARCHAR(100),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            deleted_at TIMESTAMPTZ NULL
+        );
+    """
+
+    # Table 11: Message
+    create_message_table = """
+        CREATE TABLE IF NOT EXISTS message (
+            id VARCHAR(100) PRIMARY KEY,
+            chat_id VARCHAR(100) REFERENCES chat(id) ON DELETE CASCADE,
+            content TEXT NOT NULL,
+            sender_type VARCHAR(20) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            deleted_at TIMESTAMPTZ NULL
+        );
+    """
     
     print("\nCreating tables...")
     if execute_command(connection, create_advisors_table):
@@ -219,6 +244,12 @@ def create_database_tables(connection):
 
     if execute_command(connection, create_meeting_content_versions_table):
         print("✓ 'meeting_content_versions' table created")
+
+    if execute_command(connection, create_chat_table):
+        print("✓ 'chat' table created")
+    
+    if execute_command(connection, create_message_table):
+        print("✓ 'message' table created")
 
     # ==================== ADD PROCESSING COLUMNS TO MEETING_DETAILS ====================
     print("\n--- Adding Processing Columns to meeting_details ---")
@@ -331,8 +362,22 @@ def create_database_tables(connection):
         WHERE is_current = TRUE;
     """
 
+    create_chat_indexes = """
+        CREATE INDEX IF NOT EXISTS idx_chat_meeting_deleted ON chat(meeting_id, deleted_at);
+    """
+
+    create_message_indexes = """
+        CREATE INDEX IF NOT EXISTS idx_message_chat_created ON message(chat_id, created_at);
+    """
+
     if execute_command(connection, create_version_indexes):
         print("✓ 'meeting_content_versions' indexes created")
+
+    if execute_command(connection, create_chat_indexes):
+        print("✓ 'chat' indexes created")
+    
+    if execute_command(connection, create_message_indexes):
+        print("✓ 'message' indexes created")
 
 
 def drop_database_tables(connection):
@@ -357,6 +402,8 @@ def drop_database_tables(connection):
     drop_products = "DROP TABLE IF EXISTS products CASCADE;"
     drop_advisors = "DROP TABLE IF EXISTS advisors CASCADE;"
     drop_meeting_content_versions = "DROP TABLE IF EXISTS meeting_content_versions CASCADE;"
+    drop_message = "DROP TABLE IF EXISTS message CASCADE;"
+    drop_chat = "DROP TABLE IF EXISTS chat CASCADE;"
 
     print("\nDropping tables (if they exist)...")
     if execute_command(connection, drop_feedback):
@@ -375,9 +422,13 @@ def drop_database_tables(connection):
     #     print("✓ 'products' dropped (if existed)")
     # if execute_command(connection, drop_advisors):
     #     print("✓ 'advisors' dropped (if existed)")
-    print("\nDropping tables (if they exist)...")
     if execute_command(connection, drop_meeting_content_versions):
         print("✓ 'meeting_content_versions' dropped (if existed)")
+    if execute_command(connection, drop_message):
+        print("✓ 'message' dropped (if existed)")
+    if execute_command(connection, drop_chat):
+        print("✓ 'chat' dropped (if existed)")
+        
 
 def view_table_columns(connection, table_name):
     """
@@ -453,6 +504,8 @@ def main():
             view_table_columns(conn, "transcript_aggregator")
             view_table_columns(conn, "feedback")
             view_table_columns(conn, "meeting_content_versions")
+            view_table_columns(conn, "chat")
+            view_table_columns(conn, "message")
 
             # # # Delete all tables (uncomment to drop)
             # drop_database_tables(conn)
