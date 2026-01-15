@@ -212,3 +212,4 @@ background_transcribe.py
 background_playground.py
 playground.py
 tests/outputs/transcript.txt
+playground2.py
