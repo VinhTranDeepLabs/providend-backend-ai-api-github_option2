@@ -53,7 +53,7 @@ DB_PORT = os.getenv("DB_PORT", "5432")
 
 # Monitor configuration
 POLL_INTERVAL = int(os.getenv("AUDIO_MONITOR_INTERVAL", "5"))  # seconds
-SUPPORTED_EXTENSIONS = [".wav", ".mp3", ".ogg", ".flac"]
+SUPPORTED_EXTENSIONS = [".wav", ".webm"]
 
 # ==================== LOGGING SETUP ====================
 
