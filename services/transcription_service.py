@@ -325,7 +325,6 @@ class TranscribeService:
         Analyzes the conversation to determine:
         - Who is the advisor (asking questions, providing advice)
         - Who is the client (discussing personal finances, seeking help)
-        - Additional clients (spouse, family members, etc.)
         - Extract actual names if mentioned in conversation
         
         Args:
@@ -337,146 +336,68 @@ class TranscribeService:
             Cleaned transcript with meaningful speaker labels
         """
         try:
-            # Get advisor and client names from database
+            # Get advisor and client names from database as fallback
             db = DatabaseUtils(conn)
             meeting = db.get_meeting(meeting_id)
             
-            advisor_name = None
-            client_name = None
+            advisor_name = "Advisor"
+            client_name = "Client"
             
             if meeting:
                 if meeting.get("advisor_id"):
                     advisor = db.get_advisor(meeting["advisor_id"])
-                    if advisor and advisor.get("name"):
-                        advisor_name = advisor.get("name")
+                    if advisor:
+                        advisor_name = advisor.get("name", "Advisor")
                 
                 if meeting.get("client_id"):
                     client = db.get_client(meeting["client_id"])
-                    if client and client.get("name"):
-                        client_name = client.get("name")
+                    if client:
+                        client_name = client.get("name", "Client")
 
-            # Reduce transcript only for identifying speakers
+            #Reduce transcript only for identifying speakers
             transcript_list = json.loads(transcript)
             max_back_and_forth = int(os.getenv("PROCESSOR_TRANSCRIPT_IDNTIFY_LENGTH", 20))
             reduced_transcript = transcript_list[:max_back_and_forth]
 
-            # Extract all unique speaker IDs from the full transcript to know how many speakers exist
-            import re
-            all_speaker_ids = set()
-            for entry in transcript_list:
-                if isinstance(entry, dict) and "speaker" in entry:
-                    all_speaker_ids.add(entry["speaker"])
-                elif isinstance(entry, str):
-                    # If transcript is in string format with speaker labels
-                    found_speakers = re.findall(r'(Guest-\d+|Speaker \d+)', entry)
-                    all_speaker_ids.update(found_speakers)
-            
-            num_speakers = len(all_speaker_ids)
-            logger.info(f"Detected {num_speakers} unique speakers in meeting {meeting_id}: {all_speaker_ids}")
 
-            # Build system prompt based on available names
-            if advisor_name and client_name:
-                # Scenario A: Both names from database
-                name_instructions = f"""
-                NAME ASSIGNMENT - PRIORITY 1 (Database Names Available):
-                - Advisor name from database: "{advisor_name}"
-                - Primary Client name from database: "{client_name}"
-                
-                MEETING STRUCTURE:
-                - There is always exactly 1 advisor and at least 1 client
-                - There may be additional clients (spouse, family members, business partners)
-                - The advisor typically speaks first and leads the meeting
-                
-                CRITICAL RULES:
-                1. You MUST use "{advisor_name}" for the advisor - do NOT extract a different name from transcript
-                2. You MUST use "{client_name}" for the primary client - do NOT extract a different name from transcript
-                3. For additional clients (3rd, 4th, 5th participants):
-                - Extract their actual names from transcript if mentioned
-                - If names not mentioned, label as "Client 2", "Client 3", etc.
-                4. Format: Use "Name (Role)" for all participants
-                
-                Example outputs:
-                {{"Guest-1": "{advisor_name} (Advisor)", "Guest-2": "{client_name} (Client)"}}
-                {{"Guest-1": "{advisor_name} (Advisor)", "Guest-2": "{client_name} (Client)", "Guest-3": "Mary Lim (Client)"}}
-                {{"Guest-1": "{advisor_name} (Advisor)", "Guest-2": "{client_name} (Client)", "Guest-3": "Client 2"}}
-                """
-            elif advisor_name or client_name:
-                # Scenario B: Partial names from database
-                known_name = advisor_name or client_name
-                known_role = "Advisor" if advisor_name else "Client"
-                unknown_role = "Client" if advisor_name else "Advisor"
-                
-                name_instructions = f"""
-                NAME ASSIGNMENT - MIXED PRIORITY (Partial Database Names):
-                - {known_role} name from database: "{known_name}"
-                - {unknown_role} name: NOT in database
-                
-                MEETING STRUCTURE:
-                - There is always exactly 1 advisor and at least 1 client
-                - There may be additional clients (spouse, family members, business partners)
-                - The advisor typically speaks first and leads the meeting
-                
-                CRITICAL RULES:
-                1. You MUST use "{known_name}" for the {known_role.lower()} - this is non-negotiable
-                2. For the {unknown_role.lower()}: 
-                - FIRST try to extract their actual name from the transcript (look for introductions)
-                - If no name is mentioned, use just "{unknown_role}"
-                3. For additional participants:
-                - Extract their names from transcript if mentioned
-                - If names not mentioned, label as "Client 2", "Client 3", etc.
-                4. Format: Use "Name (Role)" when name is known, just "Role" when only role is known
-                
-                Example outputs:
-                {{"Guest-1": "{known_name} ({known_role})", "Guest-2": "Sarah Lim (Client)", "Guest-3": "Client 2"}}
-                {{"Guest-1": "{known_name} ({known_role})", "Guest-2": "{unknown_role}"}}
-                """
-            else:
-                # Scenario C: No names from database
-                name_instructions = """
-                NAME ASSIGNMENT - PRIORITY 2 & 3 (Extract from Transcript or Use Roles):
-                - No names available in database
-                
-                MEETING STRUCTURE:
-                - There is always exactly 1 advisor and at least 1 client
-                - There may be additional clients (spouse, family members, business partners)
-                - The advisor typically speaks first and leads the meeting
-                
-                CRITICAL RULES:
-                1. FIRST PRIORITY: Extract actual names from the transcript if clearly mentioned
-                - Look for direct introductions: "Hi, I'm John", "My name is Sarah"
-                - Look for being addressed: "Nice to meet you, David"
-                - Look for self-references: "I'm Michael", "This is Lisa"
-                2. SECOND PRIORITY: If names are NOT clearly stated in transcript:
-                - Use "Advisor" for the financial advisor
-                - Use "Client" for the primary client
-                - Use "Client 2", "Client 3" for additional clients
-                3. Format: Use "Name (Role)" if name extracted, just "Role" if no name found
-                
-                Example outputs (names found):
-                {"Guest-1": "Christopher Wong (Advisor)", "Guest-2": "Michelle Tan (Client)", "Guest-3": "David Tan (Client)"}
-                
-                Example outputs (names not found):
-                {"Guest-1": "Advisor", "Guest-2": "Client", "Guest-3": "Client 2"}
-                """
             
             # Prepare LLM prompt for speaker identification
             system_prompt = f"""You are an expert at analyzing financial advisory meeting transcripts.
 
-            Your task is to identify which speaker is the financial advisor and which are the clients.
+            Your task is to identify which speaker is the financial advisor and which is the client. There will always be at least 1 advisor and 1 client. There may be additional guests which are considered clients.
 
             IDENTIFICATION CLUES:
             - Advisor: Asks discovery questions, provides advice, discusses financial products, uses professional language, explains concepts, leads the meeting
-            - Client(s): Answer questions about their situation, discuss personal finances, ask for help, express concerns
-            - Additional clients are often family members (spouse, children) or business partners
+            - Client: Answers questions about their situation, discusses personal finances, asks for help, expresses concerns
 
-            {name_instructions}
+            NAME ASSIGNMENT LOGIC:
+            {
+            f'''- Advisor name from database: "{advisor_name}"
+            - Client name from database: "{client_name}"
+            - USE THESE DATABASE NAMES - do not extract names from the transcript unless there is more than 2 guests, then you should extract the name of the 3rd party if mentioned.''' 
+            if advisor_name and client_name 
+            else '''- No names provided in database.
+            - EXTRACT names from the transcript if mentioned:
+            * Look for direct introductions: "Hi, I'm John", "My name is Sarah"
+            * Look for being addressed: "Nice to meet you, David"
+            * Look for self-references: "I'm Michael", "This is Lisa"
+            - If names are not clearly mentioned in the transcript, use only the roles without names.'''
+            }
 
             OUTPUT FORMAT:
             Return a JSON object mapping each speaker ID to their identity.
-            - Only include speaker IDs that actually appear in the transcript (Guest-1, Guest-2, Guest-3, etc.)
-            - There should be exactly 1 advisor
-            - There should be at least 1 client, possibly more
-            - Always return valid JSON
+            - Use "Name (Role)" format if name is available
+            - Use just "Guest_x (Client)" if no name is available
+
+            Examples for 2 guests only:
+            {{"Guest-1": "{advisor_name} (Advisor)", "Guest-2": "{client_name} (Client)"}}
+            {{"Guest-1": "Advisor", "Guest-2": "Client"}}
+
+            CRITICAL RULES:
+            1. Only include speaker IDs that actually appear in the transcript (Guest-1, Guest-2, etc.)
+            2. The advisor usually speaks first and asks questions
+            3. Always return valid JSON
+            4. Follow the name assignment logic strictly
             """
 
             user_prompt = f"""Analyze this transcript and identify the speakers:
@@ -497,34 +418,11 @@ class TranscribeService:
             
             if not speaker_mapping or not isinstance(speaker_mapping, dict):
                 logger.info(f"Warning: Invalid LLM response for meeting {meeting_id}, using fallback names")
-                
-                # Dynamic fallback logic respecting hierarchy and handling N speakers
-                speaker_mapping = {}
-                speaker_ids = sorted(list(all_speaker_ids))  # Sort to ensure consistent ordering
-                
-                if not speaker_ids:
-                    # If we couldn't detect speaker IDs, use generic fallback
-                    speaker_ids = ["Speaker 1", "Speaker 2"]
-                
-                # First speaker is typically the advisor
-                if len(speaker_ids) >= 1:
-                    if advisor_name:
-                        speaker_mapping[speaker_ids[0]] = f"{advisor_name} (Advisor)"
-                    else:
-                        speaker_mapping[speaker_ids[0]] = "Advisor"
-                
-                # Second speaker is the primary client
-                if len(speaker_ids) >= 2:
-                    if client_name:
-                        speaker_mapping[speaker_ids[1]] = f"{client_name} (Client)"
-                    else:
-                        speaker_mapping[speaker_ids[1]] = "Client"
-                
-                # Additional speakers are additional clients
-                for i, speaker_id in enumerate(speaker_ids[2:], start=2):
-                    speaker_mapping[speaker_id] = f"Client {i}"
-                
-                logger.info(f"Applied fallback mapping for {len(speaker_ids)} speakers")
+                # Fallback to database names
+                speaker_mapping = {
+                    "Speaker 1": f"{advisor_name} (Advisor)" if "Advisor" in advisor_name or advisor_name == "Advisor" else f"{advisor_name}",
+                    "Speaker 2": f"{client_name} (Client)" if "Client" in client_name or client_name == "Client" else f"{client_name}"
+                }
             
             # Replace speaker labels in transcript
             cleaned_transcript = transcript
