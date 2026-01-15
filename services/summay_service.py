@@ -1,3 +1,7 @@
+# Add this import at the top
+from services.azure_openai_service import azure_openai_service
+from utils.db_utils import DatabaseUtils
+
 def generate_summary(self, transcript: str, meeting_id: str = None, 
                     created_by: str = "AI_PROCESSOR", conn=None) -> str:
     """
