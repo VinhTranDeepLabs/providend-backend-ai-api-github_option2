@@ -63,7 +63,7 @@ BATCH_SIZE = int(os.getenv("PROCESSOR_BATCH_SIZE", "10"))
 BACKOFF_BASE = int(os.getenv("PROCESSOR_BACKOFF_BASE", "30"))  # seconds
 
 # Question template for autofill (default)
-DEFAULT_QUESTION_TEMPLATE = "tcp"
+DEFAULT_QUESTION_TEMPLATE = "Discovery"
 
 # ==================== LOGGING SETUP ====================
 
@@ -149,7 +149,7 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
     try:
         # Initialize services
         question_service = QuestionService()
-        summary_service = SummaryService()
+        # summary_service = SummaryService()
         recommendation_service = ProductRecommendationService()
         
         # Define async wrapper functions
@@ -237,19 +237,19 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
                 return {"success": False, "error": str(e)}
 
         
-        # Run tasks in parallel
-        autofill_result, summary_result, recommendation_result = await asyncio.gather(
+        # Run tasks in parallel #, summary_result
+        autofill_result, recommendation_result = await asyncio.gather(
             autofill_task(),
-            summary_task(),
+            # summary_task(), # <-- DISABLED SUMMARY FOR NOW (already being called by frontend at end of meeting. Prevent overwrite of edits)
             recommendation_task()
         )
 
         # Check if all succeeded
-        if autofill_result["success"] and summary_result["success"] and recommendation_result["success"]:
+        if autofill_result["success"] and recommendation_result["success"]: #and summary_result["success"]
             return {
                 "success": True,
                 "questions": autofill_result["questions"],
-                "summary": summary_result["summary"],
+                # "summary": summary_result["summary"],
                 "recommendations": recommendation_result["recommendations"]
             }
         else:
@@ -257,8 +257,8 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
             errors = []
             if not autofill_result["success"]:
                 errors.append(f"Autofill: {autofill_result['error']}")
-            if not summary_result["success"]:
-                errors.append(f"Summary: {summary_result['error']}")
+            # if not summary_result["success"]:
+            #     errors.append(f"Summary: {summary_result['error']}")
             if not recommendation_result["success"]:
                 errors.append(f"Recommendations: {recommendation_result['error']}")
             
@@ -345,7 +345,7 @@ def process_single_meeting(meeting: Dict, conn) -> bool:
             save_result = db.save_processing_results(
                 meeting_id=meeting_id,
                 questions=result["questions"],
-                summary=result["summary"],
+                # summary=result["summary"],
                 recommendations=result["recommendations"]
             )
             
