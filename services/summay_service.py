@@ -28,6 +28,7 @@ class SummaryService:
             try:
                 db = DatabaseUtils(conn)
                 meeting = db.get_meeting(meeting_id)
+                print(meeting)
                 
                 if meeting:
                     # Get advisor name from DB
@@ -44,10 +45,10 @@ class SummaryService:
                     
             except Exception as e:
                 print(f"Warning: Could not fetch participant names: {e}")
-        
         # Build participant context based on what names we have
         if advisor_name and client_name:
             # Option 1: We have both names from DB
+            print("@@@@ IN OPTION 1 @@@@")
             participant_context = f"""
             IMPORTANT - PARTICIPANT NAMING (Priority 1: Database Names):
             The participants in this meeting are:
@@ -66,6 +67,7 @@ class SummaryService:
             """
         elif advisor_name or client_name:
             # Option 1.5: We have partial names from DB
+            print("@@@@ IN OPTION 2 @@@@")
             known_name = advisor_name or client_name
             known_role = "Advisor" if advisor_name else "Client"
             unknown_role = "Client" if advisor_name else "Advisor"
@@ -83,6 +85,7 @@ class SummaryService:
             """
         else:
             # Option 2 & 3: No DB names available
+            print("@@@@ IN OPTION 3 @@@@")
             participant_context = """
             IMPORTANT - PARTICIPANT NAMING (Priority 2 & 3: Transcript or Roles):
             
@@ -212,7 +215,6 @@ class SummaryService:
         # If meeting_id provided, save to meeting_details and create version 1
         if meeting_id and conn:
             try:
-                from utils.db_utils import DatabaseUtils
                 db = DatabaseUtils(conn)
                 
                 # Check if summary already exists
