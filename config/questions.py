@@ -107,7 +107,6 @@ TCP_QUESTIONS  = {
 
 # Categorized questions by template
 CATEGORIZED_QUESTIONS = {
-    "tcp": TCP_QUESTIONS,
     "Pre-discovery": TCP_QUESTIONS,
     "Discovery": TCP_QUESTIONS,
     "POA": TCP_QUESTIONS,
