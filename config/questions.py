@@ -20,9 +20,7 @@ PRESET_QUESTIONS = {
     ]
 }
 
-# Categorized questions by template
-CATEGORIZED_QUESTIONS = {
-    "tcp": {
+TCP_QUESTIONS  = {
         "section 1 - values": [
             "What is important to you about money?",
             "What is the role of money in your life?",
@@ -105,4 +103,17 @@ CATEGORIZED_QUESTIONS = {
             "Do you have any preferred brands that you always go to? Example: Apple for mobile phones, SIA for flights etc."
         ]
     }
+
+
+# Categorized questions by template
+CATEGORIZED_QUESTIONS = {
+    "tcp": TCP_QUESTIONS,
+    "Pre-discovery": TCP_QUESTIONS,
+    "Discovery": TCP_QUESTIONS,
+    "POA": TCP_QUESTIONS,
+    "Presentation of Plan": TCP_QUESTIONS,
+    "Client Onboarding Orientation": TCP_QUESTIONS,
+    "Interim Check-in": TCP_QUESTIONS,
+    "Wealth Plan Review": TCP_QUESTIONS,
+    "General Meeting": TCP_QUESTIONS
 }
