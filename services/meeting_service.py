@@ -471,15 +471,15 @@ class MeetingService:
         """
         db = DatabaseUtils(conn)
         
-        # Get existing meeting details using db instance (not self.get_meeting_detail)
-        details = db.get_meeting_detail(meeting_id)  # <-- FIXED: Use db instance directly
+        # Get existing meeting details to check if first version
+        details = db.get_meeting_detail(meeting_id)
         
         if not details or not details.get("transcript"):
-            # First time saving transcript - save as-is, no markup, create v1
+            # First time saving transcript - save as-is and create v1
             result = db.update_meeting_detail(meeting_id=meeting_id, transcript=transcript)
             
             if result.get("success"):
-                # Create version 1 (clean, no <del> tags)
+                # Create version 1 (clean, no markup)
                 db.create_content_version(
                     meeting_id=meeting_id,
                     content_type='transcript',
@@ -489,33 +489,26 @@ class MeetingService:
             
             return result
         
-        # Extract original transcript by removing <del> tags
-        existing_transcript = details.get("transcript")
-        original_transcript = self._extract_original_text(existing_transcript)
-        
-        # Generate diff markup (compare new with original)
-        marked_up_transcript = self._generate_diff_markup(original_transcript, transcript)
-        
-        # Save marked-up transcript AND reset processing status
+        # Not first version - save new clean transcript and reset processing status
         result = db.update_meeting_detail(
             meeting_id=meeting_id, 
-            transcript=marked_up_transcript,
+            transcript=transcript,
             processing_status='pending',
             processing_retry_count=0,
             processing_error=None
         )
         
-        # Create new version with marked-up transcript
+        # Create new version with clean transcript
         if result.get("success"):
             db.create_content_version(
                 meeting_id=meeting_id,
                 content_type='transcript',
-                content=marked_up_transcript,
+                content=transcript,
                 created_by=created_by
             )
         
         return result
-    
+        
 
     def append_to_transcript(self, meeting_id: str, new_content: str, conn=None) -> Dict[str, Any]:
         """Append content to existing transcript"""
@@ -549,15 +542,15 @@ class MeetingService:
         """
         db = DatabaseUtils(conn)
         
-        # Get existing meeting details using the db instance (not self.get_meeting_detail)
+        # Get existing meeting details to check if first version
         details = db.get_meeting_detail(meeting_id)
         
         if not details or not details.get("summary"):
-            # First time saving summary - save as-is, no markup, create v1
+            # First time saving summary - save as-is and create v1
             result = db.update_meeting_detail(meeting_id=meeting_id, summary=summary)
             
             if result.get("success"):
-                # Create version 1 (clean, no <del> tags)
+                # Create version 1 (clean, no markup)
                 db.create_content_version(
                     meeting_id=meeting_id,
                     content_type='summary',
@@ -567,22 +560,15 @@ class MeetingService:
             
             return result
         
-        # Extract original summary by removing <del> tags
-        existing_summary = details.get("summary")
-        original_summary = self._extract_original_text(existing_summary)
+        # Not first version - save new clean summary
+        result = db.update_meeting_detail(meeting_id=meeting_id, summary=summary)
         
-        # Generate diff markup (compare new with original)
-        marked_up_summary = self._generate_diff_markup(original_summary, summary)
-        
-        # Save marked-up summary
-        result = db.update_meeting_detail(meeting_id=meeting_id, summary=marked_up_summary)
-        
-        # Create new version with marked-up summary
+        # Create new version with clean summary
         if result.get("success"):
             db.create_content_version(
                 meeting_id=meeting_id,
                 content_type='summary',
-                content=marked_up_summary,
+                content=summary,
                 created_by=created_by
             )
         

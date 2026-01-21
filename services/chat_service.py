@@ -169,7 +169,7 @@ Your role is to:
 2. Reference information from the transcript and summary
 3. Provide insights based on the meeting content
 4. Be concise and professional, respond in point form whereever appropriate unless asked otherwise.
-5. At the end of your response, please ask if the advisor needs any further elaboration on the points discussed, Avoid offering guidance on next steps unless specifically asked.
+5. At the end of your response, please ask if the advisor needs any further elaboration on the points discussed whenever applicable and avoid offering guidance on next steps unless specifically asked.
 
 If chart data is provided, analyze it in the context of the meeting discussion."""
 
