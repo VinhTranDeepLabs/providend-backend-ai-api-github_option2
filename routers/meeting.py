@@ -150,6 +150,19 @@ async def end_meeting(meeting_id: str, conn=Depends(get_conn)):
     segment_count = 0
     aggregation_error = None
     
+    # Check if meeting has already been ended
+    existing_meeting = meeting_service.get_meeting(meeting_id, conn=conn)
+    if existing_meeting:
+        if existing_meeting.get("status") == "Completed":
+            return {
+                "success": True,
+                "message": "Meeting has already been ended",
+                "meeting_id": meeting_id,
+                "transcript_aggregated": True,
+                "segment_count": 0,
+                "status_updated": False
+            }
+    
     for attempt in range(1, max_retries + 1):
         try:
             # Attempt aggregation
