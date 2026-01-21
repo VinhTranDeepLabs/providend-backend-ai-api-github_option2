@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
 import azure.cognitiveservices.speech as speechsdk
 from config.settings import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION
 from models.schemas import TranscriptionResult, SpeakerSegment
 from typing import List, Optional
 from utils.db_utils import DatabaseUtils
 from services.azure_openai_service import azure_openai_service
+from fastapi import UploadFile, HTTPException, status
+from utils.blob_utils import blob_storage_service
 from dotenv import load_dotenv
 import requests
 import time
@@ -32,6 +35,91 @@ class TranscribeService:
             subscription=self.speech_key,
             region=self.speech_region
         )
+
+    
+    async def upload_audio_to_blob(
+        self,
+        meeting_id: str,
+        audio_file: UploadFile,
+        start_datetime: datetime = None
+    ) -> dict:
+        """
+        Upload audio file to Azure Blob Storage with proper naming format
+        
+        Args:
+            meeting_id: Meeting identifier
+            audio_file: Uploaded audio file (WebM or WAV)
+            start_datetime: Optional timestamp (defaults to NOW if not provided)
+        
+        Returns:
+            Dict with upload result details
+        """
+        try:
+            # 1. Validate file extension
+            if not blob_storage_service.validate_audio_extension(audio_file.filename):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid file type. Only .webm and .wav files are allowed."
+                )
+            
+            # 2. Validate file size (300MB limit)
+            MAX_FILE_SIZE = 300 * 1024 * 1024  # 300MB in bytes
+            
+            # Read file content
+            file_content = await audio_file.read()
+            file_size_bytes = len(file_content)
+            
+            if file_size_bytes > MAX_FILE_SIZE:
+                file_size_mb = file_size_bytes / (1024 * 1024)
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File too large ({file_size_mb:.1f}MB). Maximum allowed size is 300MB."
+                )
+            
+            # 3. Set start_datetime to NOW if not provided
+            if start_datetime is None:
+                start_datetime = datetime.now(timezone.utc)
+            
+            # 4. Generate properly formatted blob name
+            file_extension = os.path.splitext(audio_file.filename)[1].lstrip('.')
+            blob_name = blob_storage_service.generate_audio_filename(
+                meeting_id=meeting_id,
+                start_datetime=start_datetime,
+                extension=file_extension
+            )
+            
+            logger.info(f"Uploading audio file: {blob_name} ({file_size_bytes / (1024 * 1024):.2f}MB)")
+            
+            # 5. Upload to blob storage (async, non-blocking I/O)
+            blob_url = await blob_storage_service.upload_audio_file(
+                file_content=file_content,
+                blob_name=blob_name,
+                overwrite=True
+            )
+            
+            logger.info(f"✓ Upload successful: {blob_url}")
+            
+            # 6. Return success response
+            return {
+                "success": True,
+                "message": "Audio file uploaded successfully",
+                "blob_name": blob_name,
+                "blob_url": blob_url,
+                "meeting_id": meeting_id,
+                "start_datetime": start_datetime.isoformat(),
+                "file_size_mb": round(file_size_bytes / (1024 * 1024), 2),
+                "file_extension": file_extension
+            }
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions as-is
+            raise
+        except Exception as e:
+            logger.error(f"Error uploading audio file: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload audio file: {str(e)}"
+            )
 
     
     def format_timestamp(self, seconds):

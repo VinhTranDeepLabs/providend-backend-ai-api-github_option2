@@ -1,5 +1,8 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi import status as http_status
+from fastapi import UploadFile, File, Query
+from typing import Optional
+from datetime import datetime
 from models.schemas import (
     BatchTranscribeRequest,
     BatchTranscribeResponse,
@@ -20,6 +23,46 @@ def get_conn(request: Request):
     if conn is None:
         raise RuntimeError("DB connection not available on app.state.db_conn")
     return conn
+
+
+@router.post("/upload-audio/{meeting_id}")
+async def upload_audio_file(
+    meeting_id: str,
+    audio_file: UploadFile = File(..., description="Audio file (WebM or WAV, max 300MB)"),
+    start_datetime: Optional[datetime] = Query(None, description="Audio start timestamp (ISO format, defaults to NOW)")
+):
+    """
+    Upload audio file to Azure Blob Storage for background transcription
+    
+    The file will be uploaded with a name format that the background processor expects:
+    <meeting_id>_<YYYY-MM-DD HH-MM-SS+00>.extension
+    
+    - **meeting_id**: Meeting identifier
+    - **audio_file**: Audio file (WebM or WAV format, max 300MB)
+    - **start_datetime**: Optional timestamp for the audio (defaults to current time)
+    
+    Returns upload confirmation with blob URL and metadata.
+    The background processor (background_batch_transcribe.py) will automatically:
+    1. Detect the new file
+    2. Transcribe it using Azure Speech Services
+    3. Save transcript to database
+    """
+    try:
+        result = await TranscribeService().upload_audio_to_blob(
+            meeting_id=meeting_id,
+            audio_file=audio_file,
+            start_datetime=start_datetime
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {str(e)}"
+        )
 
 
 @router.post(

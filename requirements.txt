@@ -11,3 +11,4 @@ authlib==1.4.0
 httpx==0.28.1
 PyJWT==2.8.0
 azure-storage-blob==12.27.1
+python-multipart==0.0.9
