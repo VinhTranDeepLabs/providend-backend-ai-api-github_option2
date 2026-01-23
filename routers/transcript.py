@@ -8,13 +8,29 @@ from models.schemas import (
     BatchTranscribeResponse,
     TranscriptRequest, 
     SummaryResponse,
-    ErrorResponse
+    ErrorResponse,
+    ApplySpeakerMappingRequest,
+    IdentifySpeakersResponse,
+    ApplySpeakerMappingResponse
 )
+from services.meeting_service import MeetingService
+from utils.db_utils import DatabaseUtils
 from services.transcription_service import TranscribeService
 from services.azure_openai_service import azure_openai_service
 import json
+import logging
 
 router = APIRouter()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('audio_monitor.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 def get_conn(request: Request):
@@ -170,4 +186,163 @@ async def get_transcript(meeting_id: str, conn=Depends(get_conn)):
         raise HTTPException(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve transcript: {str(e)}"
+        )
+    
+# ==================== SPEAKER IDENTIFICATION ENDPOINTS ====================
+
+@router.post("/{meeting_id}/identify-speakers", response_model=IdentifySpeakersResponse)
+async def identify_speakers(
+    meeting_id: str,
+    conn=Depends(get_conn)
+):
+    """
+    Identify who each speaker is in the transcript.
+    
+    Returns suggested speaker mappings without modifying transcript.
+    User can review/edit these suggestions before applying.
+    """
+    try:
+        meeting_service = MeetingService()
+        details = meeting_service.get_meeting_detail(meeting_id, conn=conn)
+        
+        if not details:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Meeting details not found for meeting_id: {meeting_id}"
+            )
+        
+        transcript = details.get("transcript")
+        
+        if not transcript or not transcript.strip():
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="No transcript found for this meeting"
+            )
+        
+        from services.transcription_service import has_generic_speaker_labels
+        
+        if not has_generic_speaker_labels(transcript):
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="Transcript already has identified speakers"
+            )
+        
+        transcribe_service = TranscribeService()
+        result = transcribe_service.identify_speakers(
+            transcript=transcript,
+            meeting_id=meeting_id,
+            conn=conn
+        )
+        
+        return IdentifySpeakersResponse(
+            success=True,
+            meeting_id=meeting_id,
+            speaker_mapping=result["speaker_mapping"],
+            num_speakers=result["num_speakers"]
+        )
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error identifying speakers for meeting {meeting_id}: {e}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to identify speakers: {str(e)}"
+        )
+
+
+@router.post("/{meeting_id}/apply-speaker-mapping", response_model=ApplySpeakerMappingResponse)
+async def apply_speaker_mapping(
+    meeting_id: str,
+    request: ApplySpeakerMappingRequest,
+    created_by: str = Query("MANUAL_SPEAKER_ID", description="Advisor ID who confirmed the mapping"),
+    conn=Depends(get_conn)
+):
+    """
+    Apply user-confirmed speaker name mapping to transcript.
+    
+    Replaces all speaker labels and creates a new version.
+    """
+    try:
+        if not request.speaker_mapping:
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="speaker_mapping cannot be empty"
+            )
+        
+        meeting_service = MeetingService()
+        details = meeting_service.get_meeting_detail(meeting_id, conn=conn)
+        
+        if not details:
+            raise HTTPException(
+                status_code=http_status.HTTP_404_NOT_FOUND,
+                detail=f"Meeting details not found for meeting_id: {meeting_id}"
+            )
+        
+        transcript = details.get("transcript")
+        
+        if not transcript or not transcript.strip():
+            raise HTTPException(
+                status_code=http_status.HTTP_400_BAD_REQUEST,
+                detail="No transcript found for this meeting"
+            )
+        
+        transcribe_service = TranscribeService()
+        updated_transcript = transcribe_service.apply_speaker_mapping(
+            transcript=transcript,
+            speaker_mapping=request.speaker_mapping
+        )
+        
+        speakers_replaced = len(request.speaker_mapping)
+        
+        db = DatabaseUtils(conn)
+        update_result = db.update_meeting_detail(
+            meeting_id=meeting_id,
+            transcript=updated_transcript
+        )
+        
+        if not update_result.get("success"):
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to update transcript: {update_result.get('message')}"
+            )
+        
+        version_created = False
+        try:
+            db.create_content_version(
+                meeting_id=meeting_id,
+                content_type='transcript',
+                content=updated_transcript,
+                created_by=created_by
+            )
+            version_created = True
+            logger.info(f"Created transcript version for meeting {meeting_id}")
+        except Exception as e:
+            logger.error(f"Failed to create version for meeting {meeting_id}: {e}")
+        
+        preview = updated_transcript[:200] + "..." if len(updated_transcript) > 200 else updated_transcript
+        
+        logger.info(f"✓ Applied speaker mapping to meeting {meeting_id}: {speakers_replaced} speakers")
+        
+        return ApplySpeakerMappingResponse(
+            success=True,
+            message="Speaker mapping applied successfully",
+            meeting_id=meeting_id,
+            speakers_replaced=speakers_replaced,
+            version_created=version_created,
+            updated_transcript_preview=preview
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error applying speaker mapping for meeting {meeting_id}: {e}")
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to apply speaker mapping: {str(e)}"
         )

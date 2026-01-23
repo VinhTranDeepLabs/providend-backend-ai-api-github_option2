@@ -407,3 +407,28 @@ class ChatHistoryResponse(BaseModel):
     meeting_id: str
     total_messages: int
     messages: List[ChatMessageItem]
+
+
+# ==================== SPEAKER IDENTIFICATION SCHEMAS ====================
+
+class IdentifySpeakersResponse(BaseModel):
+    """Response for speaker identification endpoint"""
+    success: bool = True
+    meeting_id: str
+    speaker_mapping: Dict[str, str]
+    num_speakers: int
+
+
+class ApplySpeakerMappingRequest(BaseModel):
+    """Request to apply speaker name mapping to transcript"""
+    speaker_mapping: Dict[str, str]
+
+
+class ApplySpeakerMappingResponse(BaseModel):
+    """Response for applying speaker mapping"""
+    success: bool = True
+    message: str
+    meeting_id: str
+    speakers_replaced: int
+    version_created: bool
+    updated_transcript_preview: Optional[str] = None

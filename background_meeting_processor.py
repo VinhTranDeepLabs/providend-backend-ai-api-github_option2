@@ -44,6 +44,8 @@ from services.product_service import ProductRecommendationService
 from services.transcription_service import TranscribeService
 from utils.db_utils import DatabaseUtils
 
+from services.transcription_service import has_generic_speaker_labels
+
 # Load environment variables
 load_dotenv()
 
@@ -189,28 +191,28 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
                 logger.error(f"[{meeting_id}] ✗ Autofill failed: {e}")
                 return {"success": False, "error": str(e)}
         
-        async def summary_task():
-            """Generate summary task - WITH VERSION CREATION"""
-            logger.info(f"[{meeting_id}] Running summary generation...")
-            start_time = time.time()
+        # async def summary_task():
+        #     """Generate summary task - WITH VERSION CREATION"""
+        #     logger.info(f"[{meeting_id}] Running summary generation...")
+        #     start_time = time.time()
             
-            try:
-                # Pass created_by and conn to enable version creation
-                summary = summary_service.generate_summary(
-                    transcript=transcript,
-                    meeting_id=meeting_id,
-                    created_by="AI_PROCESSOR",  # <-- ADDED: Track AI-generated summaries
-                    conn=conn
-                )
+        #     try:
+        #         # Pass created_by and conn to enable version creation
+        #         summary = summary_service.generate_summary(
+        #             transcript=transcript,
+        #             meeting_id=meeting_id,
+        #             created_by="AI_PROCESSOR",  # <-- ADDED: Track AI-generated summaries
+        #             conn=conn
+        #         )
                 
-                duration = time.time() - start_time
-                logger.info(f"[{meeting_id}] ✓ Summary completed in {duration:.2f}s")
+        #         duration = time.time() - start_time
+        #         logger.info(f"[{meeting_id}] ✓ Summary completed in {duration:.2f}s")
                 
-                return {"success": True, "summary": summary}
+        #         return {"success": True, "summary": summary}
                 
-            except Exception as e:
-                logger.error(f"[{meeting_id}] ✗ Summary failed: {e}")
-                return {"success": False, "error": str(e)}
+        #     except Exception as e:
+        #         logger.error(f"[{meeting_id}] ✗ Summary failed: {e}")
+        #         return {"success": False, "error": str(e)}
             
         async def recommendation_task():
             """Generate product recommendations from transcript"""
@@ -237,15 +239,14 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
                 return {"success": False, "error": str(e)}
 
         
-        # Run tasks in parallel #, summary_result
+        # Run tasks in parallel (took away # summary_task() and summary_result)
         autofill_result, recommendation_result = await asyncio.gather(
             autofill_task(),
-            # summary_task(), # <-- DISABLED SUMMARY FOR NOW (already being called by frontend at end of meeting. Prevent overwrite of edits)
             recommendation_task()
         )
 
-        # Check if all succeeded
-        if autofill_result["success"] and recommendation_result["success"]: #and summary_result["success"]
+        # Check if all succeeded (removed and summary_result["success"])
+        if autofill_result["success"] and recommendation_result["success"]:
             return {
                 "success": True,
                 "questions": autofill_result["questions"],
@@ -300,31 +301,35 @@ def process_single_meeting(meeting: Dict, conn) -> bool:
         logger.warning(f"[{meeting_id}] ⚠ Already being processed by another instance")
         return False
     
-    # ==================== ADD THIS SECTION ====================
-    # Step 1.5: Identify and replace speaker labels with actual names/roles
+    # Step 1.5: Identify and replace speaker labels (ONLY if not already done manually)
     try:
-        transcribe_service = TranscribeService()
-        cleaned_transcript = transcribe_service.identify_and_replace_speakers(
-            transcript=transcript,
-            meeting_id=meeting_id,
-            conn=conn
-        )
-        
-        # Update meeting_details with cleaned transcript
-        db.update_meeting_detail(meeting_id=meeting_id, transcript=cleaned_transcript)
-        
-        # Create transcript version 1 with cleaned transcript
-        db.create_content_version(
-            meeting_id=meeting_id,
-            content_type='transcript',
-            content=cleaned_transcript,
-            created_by='AI_PROCESSOR'
-        )
-        
-        # Use cleaned transcript for all subsequent processing
-        transcript = cleaned_transcript
-        logger.info(f"Clearned Transcript: {transcript}")
-        logger.info(f"[{meeting_id}] ✓ Transcript updated with identified speakers")
+        # Check if transcript still has generic labels (Guest-1, Speaker 1, etc.)
+        if has_generic_speaker_labels(transcript):
+            logger.info(f"[{meeting_id}] Transcript has generic labels, auto-identifying speakers...")
+            
+            transcribe_service = TranscribeService()
+            cleaned_transcript = transcribe_service.identify_and_replace_speakers(
+                transcript=transcript,
+                meeting_id=meeting_id,
+                conn=conn
+            )
+            
+            # Update meeting_details with cleaned transcript
+            db.update_meeting_detail(meeting_id=meeting_id, transcript=cleaned_transcript)
+            
+            # Create transcript version with cleaned transcript
+            db.create_content_version(
+                meeting_id=meeting_id,
+                content_type='transcript',
+                content=cleaned_transcript,
+                created_by='AI_PROCESSOR'
+            )
+            
+            # Use cleaned transcript for all subsequent processing
+            transcript = cleaned_transcript
+            logger.info(f"[{meeting_id}] ✓ Transcript updated with identified speakers")
+        else:
+            logger.info(f"[{meeting_id}] ✓ Transcript already has real names, skipping auto-identification")
         
     except Exception as e:
         logger.error(f"[{meeting_id}] ✗ Failed to identify speakers: {e}")
