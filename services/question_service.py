@@ -278,3 +278,97 @@ class QuestionService:
         except Exception as e:
             print(f"Error retrieving transcript for meeting {meeting_id}: {e}")
             return None
+        
+
+    def sync_question_tracker_from_questions(self, meeting_id: str, conn=None) -> Dict[str, Dict[str, bool]]:
+        """
+        Convert questions field to question_tracker format and save to database.
+        
+        Reads the questions field from meeting_details, uses meeting_type from meetings table
+        as the template, converts it to the tracker format (organized by sections with boolean 
+        values), and saves it back to question_tracker field.
+        
+        Args:
+            meeting_id: The meeting ID
+            conn: Database connection
+        
+        Returns:
+            Question tracker dictionary organized by sections
+        
+        Raises:
+            ValueError: If meeting not found, questions field empty, or template issues
+        """
+        if conn is None:
+            raise ValueError("Database connection not available")
+        
+        db = DatabaseUtils(conn)
+        
+        # Get meeting record for meeting_type
+        meeting = db.get_meeting(meeting_id)
+        
+        if not meeting:
+            raise ValueError(f"Meeting not found for meeting_id: {meeting_id}")
+        
+        # Get meeting_type to use as template
+        meeting_type = meeting.get("meeting_type")
+        
+        if not meeting_type:
+            raise ValueError("Meeting type not found in meeting record")
+        
+        # Get meeting details for questions field
+        details = db.get_meeting_detail(meeting_id)
+        
+        if not details:
+            raise ValueError(f"Meeting details not found for meeting_id: {meeting_id}")
+        
+        # Get questions field
+        questions_raw = details.get("questions")
+        
+        if not questions_raw:
+            raise ValueError("Questions field is empty or null. Please run autofill questions first.")
+        
+        # Parse questions JSON
+        try:
+            questions_obj = json.loads(questions_raw) if isinstance(questions_raw, str) else questions_raw
+        except Exception as e:
+            raise ValueError(f"Failed to parse questions JSON: {str(e)}")
+        
+        # Get categorized questions for this meeting type (as template)
+        if meeting_type not in CATEGORIZED_QUESTIONS:
+            raise ValueError(f"Meeting type '{meeting_type}' not found in CATEGORIZED_QUESTIONS")
+        
+        categorized_questions = CATEGORIZED_QUESTIONS[meeting_type]
+        questions_list = questions_obj.get("questions", [])
+        
+        # Create a mapping of question text to answer status
+        question_answer_map = {}
+        for q in questions_list:
+            question_text = q.get("question")
+            answer = q.get("answer")
+            # True if answer exists and is not null/empty
+            is_answered = answer is not None and str(answer).strip() != ""
+            question_answer_map[question_text] = is_answered
+        
+        # Build question_tracker organized by sections
+        question_tracker = {}
+        for section, questions_in_section in categorized_questions.items():
+            question_tracker[section] = {}
+            for question in questions_in_section:
+                # Get answer status from map, default to False if not found
+                is_answered = question_answer_map.get(question, False)
+                question_tracker[section][question] = is_answered
+        
+        # Save to database using MeetingService
+        from services.meeting_service import MeetingService
+        meeting_service = MeetingService()
+        
+        save_result = meeting_service.update_meeting_tracker(
+            meeting_id=meeting_id,
+            tracker_data=question_tracker,
+            conn=conn
+        )
+        
+        if not save_result.get("success"):
+            raise ValueError(f"Failed to save question_tracker: {save_result.get('message')}")
+        
+        return question_tracker

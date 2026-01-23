@@ -166,3 +166,47 @@ async def track_questions(request: QuestionTrackerRequest, conn=Depends(get_conn
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to track questions: {str(e)}"
         )
+
+
+@router.post(
+    "/sync-tracker/{meeting_id}",
+    response_model=QuestionTrackerResponse,
+    responses={400: {"model": ErrorResponse}}
+)
+async def sync_question_tracker_from_questions(
+    meeting_id: str,
+    conn=Depends(get_conn)
+):
+    """
+    Convert questions field to question_tracker format and update meeting_details.
+    
+    This endpoint:
+    1. Reads the questions field from meeting_details
+    2. Converts it to question_tracker format (organized by sections with boolean values)
+    3. Saves the tracker to meeting_details.question_tracker
+    
+    - **meeting_id**: The meeting ID to sync tracker for
+    
+    Returns question_tracker organized by sections with boolean indicating if answered
+    """
+    try:
+        question_tracker = QuestionService().sync_question_tracker_from_questions(
+            meeting_id=meeting_id,
+            conn=conn
+        )
+        
+        return QuestionTrackerResponse(
+            sections=question_tracker,
+            success=True
+        )
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to sync question tracker: {str(e)}"
+        )
