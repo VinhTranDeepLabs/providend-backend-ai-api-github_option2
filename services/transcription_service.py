@@ -291,7 +291,7 @@ class TranscribeService:
             
             # Step 5: Parse speaker segments
             speaker_segments = []
-            transcript_lines = []
+            transcript_array = []  # Changed from transcript_lines
             max_end_time = 0.0
 
             if 'recognizedPhrases' in transcript_json:
@@ -317,7 +317,7 @@ class TranscribeService:
                     
                     max_end_time = max(max_end_time, end_time)
 
-                    speaker_label = f"Speaker {speaker_id + 1}"
+                    speaker_label = f"Guest-{speaker_id}"  # Changed to Guest-N format
 
                     segment = SpeakerSegment(
                         speaker=speaker_label,
@@ -327,13 +327,17 @@ class TranscribeService:
                     )
                     
                     speaker_segments.append(segment)
-                    transcript_lines.append(f"{speaker_label}: {text}")
+                    # Changed: Build JSON array instead of plain text lines
+                    transcript_array.append({
+                        "speaker": speaker_label,
+                        "text": text
+                    })
 
             # Sort segments by start time
             speaker_segments.sort(key=lambda x: x.start_time if x.start_time else 0)
 
-            # Create formatted transcript with speaker labels
-            transcript = '\n'.join(transcript_lines)
+            # Create JSON formatted transcript
+            transcript = json.dumps(transcript_array)  # Changed to JSON
 
             # Create TranscriptionResult
             result = TranscriptionResult(

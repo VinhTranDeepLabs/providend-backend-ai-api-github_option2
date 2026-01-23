@@ -1107,23 +1107,53 @@ class DatabaseUtils:
     
     def aggregate_transcripts(self, meeting_id: str, separator: str = "\n") -> Optional[str]:
         """
-        Combine all transcript segments into a single string.
+        Aggregate all transcript segments (JSON arrays) into a single JSON array.
+        
+        Each segment contains a JSON array like: [{"speaker":"Guest-1","text":"..."}]
+        This method merges all segments into one unified JSON array.
         
         Args:
             meeting_id: The meeting ID
-            separator: String to join segments (default: newline)
+            separator: DEPRECATED - kept for backwards compatibility but not used
         
         Returns:
-            Aggregated transcript string or None
+            JSON string containing merged transcript array, or None if no segments found
         """
+        import json
+        
         segments = self.get_transcript_segments(meeting_id)
         
         if not segments:
             return None
         
-        # Join all transcript texts
-        full_transcript = separator.join([seg["transcript"] for seg in segments])
-        return full_transcript
+        # Merge all JSON arrays into one
+        all_entries = []
+        
+        for segment in segments:
+            transcript_json = segment.get("transcript")
+            
+            if not transcript_json:
+                continue
+            
+            try:
+                # Parse each segment's JSON array
+                segment_array = json.loads(transcript_json)
+                
+                # Validate it's a list
+                if isinstance(segment_array, list):
+                    all_entries.extend(segment_array)
+                else:
+                    print(f"Warning: Segment is not a JSON array for meeting {meeting_id}")
+                    
+            except json.JSONDecodeError as e:
+                print(f"Warning: Failed to parse segment JSON for meeting {meeting_id}: {e}")
+                continue
+        
+        if not all_entries:
+            return None
+        
+        # Return as JSON string
+        return json.dumps(all_entries)
     
     def update_transcript_segment(self, meeting_id: str, segment_index: int, 
                                  transcript: str = None, 
