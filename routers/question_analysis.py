@@ -1,8 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi import status as http_status
 from models.schemas import (
-    TranscriptRequest,
-    UnansweredQuestionsResponse,
+    GetQuestionTrackerResponse,
     ErrorResponse,
     RecommendQuestions,
     RecommendQuestionsResponse,
@@ -170,7 +169,7 @@ async def track_questions(request: QuestionTrackerRequest, conn=Depends(get_conn
 
 @router.post(
     "/sync-tracker/{meeting_id}",
-    response_model=QuestionTrackerResponse,
+    response_model=GetQuestionTrackerResponse,
     responses={400: {"model": ErrorResponse}}
 )
 async def sync_question_tracker_from_questions(
@@ -195,9 +194,10 @@ async def sync_question_tracker_from_questions(
             conn=conn
         )
         
-        return QuestionTrackerResponse(
-            sections=question_tracker,
-            success=True
+        return GetQuestionTrackerResponse(
+            success=True,
+            meeting_id=meeting_id,
+            tracker=question_tracker
         )
         
     except ValueError as e:
