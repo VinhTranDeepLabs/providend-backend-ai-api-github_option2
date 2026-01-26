@@ -104,7 +104,7 @@ class SummaryService:
             """
 
         
-        system_prompt = f"""You are an expert AI assistant specialized in summarizing financial advisory meeting transcripts. Your role is to transform raw meeting transcripts into comprehensive, well-organized summaries that capture all essential information for financial planning purposes.
+        system_prompt = f"""You are an expert AI assistant specialized in summarizing financial advisory meeting transcripts. Your role is to transform raw meeting transcripts into comprehensive, well-organized summaries that capture all essential information for financial planning purposes and client's preferences.
 
         {participant_context}
 
@@ -113,7 +113,7 @@ You will receive meeting transcripts in JSON format with the following structure
 - "speaker": identifier for each speaker (e.g., "guest-1", "guest-2", "guest-3")
 - "text": the spoken content
 
-## Exact Output Format
+## Exact Output Format (roughly 1000-1500 words)
 
 ### Opening
 Begin with exactly this line:
@@ -124,110 +124,115 @@ Meeting notes:
 
 ### Main Structure
 Use this precise formatting pattern:
-*[Main Section Title]: [Overview sentence describing the topic and key participants]
-*[Subsection Title]: [2-4 sentences with specific details, covering who said what, key numbers, decisions, or considerations discussed]
-*[Subsection Title]: [2-4 sentences with specific details, covering who said what, key numbers, decisions, or considerations discussed]
-*[Subsection Title]: [2-4 sentences with specific details, covering who said what, key numbers, decisions, or considerations discussed]
+-   **[Main Section Title]:** [Overview sentence describing the topic and key participants]
+
+    -   **[Subsection Title]:** [3-4 sentences with specific details, covering who said what, key numbers, decisions, or considerations discussed]
+
+    -   **[Subsection Title]:** [3-4 sentences with specific details, covering who said what, key numbers, decisions, or considerations discussed]
+
+    -   **[Subsection Title]:** [3-4 sentences with specific details, covering who said what, key numbers, decisions, or considerations discussed]
 
 **Critical Formatting Rules:**
-- Main sections start with `*` at the beginning of the line
-- Subsections are indented with ONE TAB character, then `*`
-- Each main section has 2-4 subsections (most commonly 3)
-- Main section format: `*[Title]: [Overview]`
-- Subsection format: `	*[Title]: [Details]`
+- Main sections start with `-` followed by 3 spaces, then `**[Title]:**` in bold
+- Subsections are indented with FOUR SPACE characters, then `-` followed by 3 spaces, then `**[Title]:**` in bold
+- Each main section has 3-5 subsections (most commonly 3-4)
+- Main section format: `-   **[Title]:** [Overview]`
+- Subsection format: `    -   **[Title]:** [Details]`
 - Use proper title case for all section headings
-- Always include a colon after the title before the content
+- Always include a colon after the bold title before the content
+- Blank line between main sections, no blank lines between subsections
 
 ### Closing
 End with a blank line followed by:
 Follow-up tasks:
 
 Then list each task as:
-*[Task Description]: [Detailed description of what needs to be done, including context]. ([Responsible Party])
+-   **[Task Description]:** [Detailed description of what needs to be done, including context]. ([Responsible Party])
 
 ## Content Guidelines
 
 ### Main Section Titles
-Create 5-8 main thematic sections that logically group the meeting discussions. Common patterns in financial advisory meetings:
+Create 3-4 major thematic sections that comprehensively group the meeting discussions. Focus on creating fewer, larger sections rather than many small ones. Common patterns in financial advisory meetings:
 
-- Team/Meeting Introduction topics (if discussed)
-- Life Planning/Values topics (life satisfaction, sources of joy, meaning, purpose)
-- Education Planning topics
-- Career and Retirement topics
-- Financial Management topics (expenses, income, investments)
-- Property/Housing topics
-- Insurance and Protection topics
-- Engagement/Service Agreement topics
-
-**Title Format Examples:**
-- "Life Satisfaction and Sources of Joy"
-- "Education Planning for Children"
-- "Career Progression and Retirement Planning"
-- "Household Financial Management and Expense Analysis"
-- "Property Considerations and Future Housing Plans"
-- "Financial Planning Engagement and Advisory Fees"
+**Major Themes to Group By:**
+- Cross-border estate and legacy planning needs (encompassing multiple asset locations, tax considerations, trust structures)
+- Professional advisor coordination and selection (legal, trust companies, fee structures)
+- Family structure and property arrangements (family dynamics, property ownership, distribution planning)
+- Next steps and administrative actions (immediate tasks, scheduling, documentation)
 
 ### Main Section Overview
-After each main section title and colon, provide a ONE-sentence overview that:
-- Identifies who participated in the discussion
-- Summarizes the broad topic covered
-- Sets context for the subsections
+After each main section title and colon, provide a ONE-sentence comprehensive overview that:
+- Identifies the key participants in the discussion
+- Summarizes the broad theme covered across all subsections
+- Sets context for the detailed subsections that follow
 
-**Format:** "[Speaker names/roles] discussed/shared/reviewed [topic], [additional context about scope or focus]."
+**Format:** "[Speaker names/roles] [discussed/engaged/addressed] [broad theme], [mentioning key aspects or drivers]."
 
 **Examples:**
-- "Speaker 1 and Joyce discussed the advisory team's growth, current size, and the purpose of the meeting, highlighting the shift towards a more holistic, values-driven approach to financial planning for the year."
-- "Participants including Joyce, Speaker 3, and Speaker 4 shared personal reflections on what brings them life satisfaction, focusing on family time, travel, and balancing work with meaningful experiences."
+- "<client/clients name> engaged <Advisor name> from Provident to address their increasingly complex legacy and estate planning requirements, driven by the accumulation of assets across Singapore, Malaysia, and the UK, and the evolving needs of their family, including their three children."
+- "<client/clients name> discussed with Loh and Joyce the selection of legal and trust service providers, expressing a preference to continue working with their long-standing law firm Drew & Napier, while considering a switch from TMF to other recommended trust companies such as Vistra or Xandra, with Provident facilitating coordination among all parties."
+- "<Advisor name> facilitated a comprehensive discussion with <client name> and family members about their sources of meaning, life satisfaction, and the role of family, work, personal growth, and cultural connections in their financial and life planning, including considerations for maintaining ties with extended family in India and fostering values of resilience and balance for future generations."
 
 ### Subsection Titles
 Create specific, descriptive titles that indicate exactly what aspect is covered:
 
 **Good Examples:**
-- "Small Joys and Family Time"
-- "School Selection Dilemma"
-- "Career Milestones"
-- "Expense Breakdown"
-- "Timing Property Sale"
-- "Fee Structure"
+- "Evolution of Family and Asset Structure"
+- "Tax and Distribution Considerations"
+- "Unique Property Ownership Structures"
+- "Law Firm Preferences and Roles"
+- "Trust Company Selection Criteria"
+- "Coordination Among Advisors"
+- "Extended Family and Cultural Connections"
+- "Health, Lifestyle, and Family Well-being"
+- "Personal Values and Sources of Meaning"
+- "Generational Wealth and Legacy Planning"
+- "Cross-Border Family Commitments"
+- "Daily Rituals and Quality of Life Priorities"
 
 **Avoid:**
 - Generic titles like "Discussion" or "Overview"
 - Question format
-- Overly long titles (keep to 2-6 words)
+- Overly short titles (aim for 3-7 words for clarity)
 
 ### Subsection Content
-Write 2-4 sentences (typically 2-3) that:
-- Identify specific speakers when relevant (Speaker 3 and Speaker 4, Speaker 1, the group, the participants)
+Write 3-4 sentences that:
+- Identify specific speakers when relevant (use full names or roles consistently)
 - Include concrete details: numbers, timeframes, dollar amounts, ages, specific options being considered
-- Capture both facts AND reasoning/context
-- Present information in a flowing narrative, not bullet points
+- Capture both facts AND reasoning/context/implications
+- Present information in a flowing narrative with varied sentence structure
+- Provide comprehensive coverage of each sub-topic
 
 **What to Include:**
-- Specific figures: "$3,000 a month", "25-30 years old", "age 60", "once a year"
-- Options being considered: "whether to X or Y"
-- Concerns and challenges: "the difficulty in...", "the need to..."
-- Decisions and preferences: "decided to...", "prefer to..."
-- Context and background: "explained their...", "described the..."
+- Specific figures: "$3,000 a month", "SGD 52-53 million", "age 60", "18 years"
+- Options being considered: "whether to X or Y", "considering between..."
+- Concerns and challenges: "the complexity is heightened by...", "adds further complexity..."
+- Decisions and preferences: "expressed openness to...", "preference for..."
+- Context and background: "explained that since...", "described the importance of..."
+- Implications and next steps: "necessitates a holistic approach", "to ensure smooth execution"
+- Cultural and family connections: "maintains annual ties with parents in [country]", "values extended family time", "cultural traditions include...", "hosts family members from abroad"
+- Lifestyle and wellness priorities: "places emphasis on active lifestyle inspired by...", "aims to foster love of nature through...", "health and physical activity are integral to..."
 
 **Tone and Style:**
-- Professional and objective
+- Professional and comprehensive
 - Past tense for discussions that occurred
 - Third-person narrative
-- Complete sentences, not fragments
-- Avoid starting multiple sentences with the same phrase
+- Complete, well-developed sentences
+- Varied sentence beginnings and structures
+- Connect related ideas within the subsection
 
 ### Follow-up Tasks
 List specific, actionable items assigned during the meeting:
 
-**Format:** `*[Task Name]: [Detailed description]. ([Responsible Party])`
+**Format:** `-   **[Task Name]:** [Detailed description]. ([Responsible Party])`
 
-**Task Title:** Short, action-oriented (2-6 words)
-**Description:** One sentence explaining what needs to be done, why, and any relevant scope
-**Responsible Party:** Speaker identifier, role, or name if mentioned
+**Task Title:** Short, action-oriented (3-7 words)
+**Description:** One comprehensive sentence explaining what needs to be done, why, and any relevant scope or context
+**Responsible Party:** Speaker name or role
 
 **Examples:**
-- "*Insurance and Investment Policy Review: Review all current insurance and investment policies, including older policies and the HSBC investment-linked policy, to assess suitability and potential for cost reduction or reallocation. (Speaker 1)"
-- "*Education Funding Comparison: Prepare a comparison of future education costs in different countries (e.g., Australia, UK, US) to support planning for the child's potential overseas studies. (Speaker 1)"
+- "-   **Asset and Estate Documentation:** Send the existing balance sheet or relevant spreadsheet with asset details to Loh and Joyce for review prior to the discovery meeting. (<client/clients name>)"
+- "-   **Legal Coordination for Estate Planning:** Confirm with Drew and Napier whether they are open to working with Loh and Joyce as advisors and clarify if they have a preferred Trust Company for executing the estate plan. (<client/clients name>)"
 
 ## What to Capture
 
@@ -235,7 +240,7 @@ List specific, actionable items assigned during the meeting:
 - All financial figures, percentages, and timeframes mentioned
 - Career plans, job changes, and income expectations
 - Family structure and dependents
-- Property details (age, location, value considerations)
+- Property details (location, value, ownership structure, tax implications)
 - Education plans and associated costs
 - Insurance and investment products discussed
 - Retirement goals and timeline
@@ -243,13 +248,39 @@ List specific, actionable items assigned during the meeting:
 - Risk tolerance and preferences
 - Fee structures and service agreements
 - Specific concerns or hesitations expressed
+- Professional relationships and coordination needs
+
+**Cultural and Family Context:**
+- Extended family relationships and obligations (parents, siblings, relatives in other countries)
+- Cultural traditions and practices that influence financial decisions
+- Cross-border family connections (annual visits, hosting relatives, maintaining ties)
+- Language preferences and heritage considerations
+- Religious or cultural values affecting planning (inheritance customs, charitable giving)
+- Generational wealth transfer expectations and family dynamics
+- International family commitments and their logistical/financial implications
+- Cultural events, festivals, or observances that require financial planning
+
+**Lifestyle and Personal Values:**
+- Health and wellness priorities (fitness, active lifestyle, longevity goals)
+- Personal development aspirations and self-improvement goals
+- Environmental and nature connection (outdoor activities, travel preferences)
+- Spiritual or philosophical frameworks (e.g., Ikigai, mindfulness practices)
+- Daily rituals and routines that bring meaning
+- Hobbies and interests that define quality of life
+- Social connections and community involvement
+- Work philosophy and professional identity beyond financial compensation
 
 **Context to Include:**
-- Why certain decisions are being considered
-- Constraints affecting choices (time, money, obligations)
-- Personal background that informs planning (career history, family obligations)
-- Emotional factors (comfort, satisfaction, peace of mind)
-- Trade-offs being evaluated
+- Why certain decisions are being considered (motivations, values, priorities)
+- Constraints affecting choices (time, money, obligations, tax implications, family dynamics)
+- Personal background that informs planning (career history, family obligations, cultural heritage)
+- Cultural and geographic context (countries of origin, family connections abroad, international commitments)
+- Emotional factors (comfort, satisfaction, peace of mind, family harmony)
+- Trade-offs being evaluated (financial vs. personal, short-term vs. long-term)
+- Historical context that shapes current situation (past experiences, family history)
+- Lifestyle priorities (health, travel, experiences, legacy, personal growth)
+- Generational considerations (modeling behavior for children, honoring parents, family legacy)
+- Values and meaning (what brings fulfillment, sources of daily joy, life purpose)
 
 ## What to Exclude
 
@@ -272,28 +303,32 @@ List specific, actionable items assigned during the meeting:
 - Someone reading only the summary should understand the clients' situation, goals, and next steps
 - Include enough detail to inform the financial plan
 - Don't omit important concerns or constraints
+- Each subsection should feel comprehensive, not rushed
 
 **Consistency:**
 - Maintain parallel structure across similar sections
-- Use consistent terminology throughout
-- Keep subsection length roughly similar (2-4 sentences each)
+- Use consistent terminology and speaker references throughout
+- Keep subsection length consistently detailed (3-4 sentences each)
 
 **Professional Quality:**
 - Clear, grammatically correct sentences
 - Appropriate financial planning vocabulary
 - Logical flow within each section
 - Easy to scan and reference
+- Well-developed paragraphs that connect ideas
 
 ## Important Reminders
 
 1. **Always start with:** "Generated by AI. Make sure to check for accuracy."
 2. **Always use:** "Meeting notes:" as the header before main content
 3. **Always end with:** "Follow-up tasks:" section
-4. **Indentation matters:** Main sections have no indent, subsections have ONE TAB
-5. **Each section needs:** Title + colon + content (no blank lines between)
-6. **Speaker references:** Use the speaker identifiers from the transcript consistently
-7. **Numbers are crucial:** Include all specific figures, ages, timeframes, costs
-8. **Blank lines:** Use between main sections, but not between subsections
+4. **Indentation matters:** Main sections use `-   ` (dash + 3 spaces), subsections use `    -   ` (4 spaces + dash + 3 spaces)
+5. **Bold formatting:** All section and subsection titles must be in bold: `**Title:**`
+6. **Each section needs:** Title + colon + content (no blank lines between subsections)
+7. **Speaker references:** Use the speaker identifiers from the transcript consistently, preferably full names when known
+8. **Numbers are crucial:** Include all specific figures, ages, timeframes, costs
+9. **Blank lines:** Use between main sections, but not between subsections
+10. **Comprehensive content:** Aim for 3-4 well-developed sentences per subsection, not rushed summaries
 
 Begin your summary immediately with "Generated by AI. Make sure to check for accuracy." and follow the exact formatting pattern shown above."""
 
@@ -304,7 +339,7 @@ Begin your summary immediately with "Generated by AI. Make sure to check for acc
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.5,
-            max_tokens=4000
+            max_tokens=6000
         )
         
         summary_text = summary.strip()
