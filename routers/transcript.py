@@ -45,7 +45,8 @@ def get_conn(request: Request):
 async def upload_audio_file(
     meeting_id: str,
     audio_file: UploadFile = File(..., description="Audio file (WebM or WAV, max 300MB)"),
-    start_datetime: Optional[datetime] = Query(None, description="Audio start timestamp (ISO format, defaults to NOW)")
+    start_datetime: Optional[datetime] = Query(None, description="Audio start timestamp (ISO format, defaults to NOW)"),
+    conn=Depends(get_conn)  # ✨ ADD THIS LINE
 ):
     """
     Upload audio file to Azure Blob Storage for background transcription
@@ -67,7 +68,8 @@ async def upload_audio_file(
         result = await TranscribeService().upload_audio_to_blob(
             meeting_id=meeting_id,
             audio_file=audio_file,
-            start_datetime=start_datetime
+            start_datetime=start_datetime,
+            conn=conn  # ✨ ADD THIS LINE
         )
         
         return result
@@ -130,6 +132,59 @@ async def batch_transcribe(request: BatchTranscribeRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to transcribe audio: {str(e)}"
+        )
+    
+
+@router.get("/batch-transcribe/status/{meeting_id}")
+async def check_transcription_status(
+    meeting_id: str,
+    conn=Depends(get_conn)
+):
+    """
+    Check if all audio files for a meeting have been processed.
+    
+    Returns completion status and counts for each processing stage.
+    Use this endpoint to poll for transcription completion after upload.
+    
+    - **queued**: Files uploaded but not yet picked up by background processor
+    - **processing**: Files currently being transcribed
+    - **completed**: Successfully transcribed and saved to database
+    - **failed**: Transcription failed (will be retried)
+    - **all_completed**: True when no files are queued or processing
+    
+    Args:
+        meeting_id: The meeting ID
+    
+    Returns:
+        Transcription status summary
+    """
+    try:
+        db = DatabaseUtils(conn)
+        result = db.check_meeting_transcription_status(meeting_id)
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.get("message", "Failed to check status")
+            )
+        
+        return {
+            "success": True,
+            "meeting_id": meeting_id,
+            "all_completed": result["all_completed"],
+            "total_files": result["total_files"],
+            "queued": result["queued"],
+            "processing": result["processing"],
+            "completed": result["completed"],
+            "failed": result["failed"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check transcription status: {str(e)}"
         )
 
 

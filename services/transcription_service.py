@@ -56,7 +56,8 @@ class TranscribeService:
         self,
         meeting_id: str,
         audio_file: UploadFile,
-        start_datetime: datetime = None
+        start_datetime: datetime = None,
+        conn=None
     ) -> dict:
         """
         Upload audio file to Azure Blob Storage with proper naming format
@@ -113,8 +114,22 @@ class TranscribeService:
             )
             
             logger.info(f"✓ Upload successful: {blob_url}")
+        
+            # 6. Create 'queued' entry in database (if conn provided)
+            if conn:
+                try:
+                    from utils.db_utils import DatabaseUtils
+                    db = DatabaseUtils(conn)
+                    queue_result = db.insert_queued_transcription(
+                        blob_name=blob_name,
+                        meeting_id=meeting_id,
+                        file_size_bytes=file_size_bytes
+                    )
+                    logger.info(f"✓ Audio queued for transcription: {queue_result['message']}")
+                except Exception as e:
+                    logger.warning(f"⚠ Failed to queue transcription (non-critical): {e}")
             
-            # 6. Return success response
+            # 7. Return success response
             return {
                 "success": True,
                 "message": "Audio file uploaded successfully",

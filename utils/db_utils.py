@@ -2221,3 +2221,92 @@ class DatabaseUtils:
         except Error as e:
             print(f"Error fetching chat messages: {e}")
             return []
+
+    # ==================== TRANSCRIPTION STATUS OPERATIONS ====================
+
+    def insert_queued_transcription(self, blob_name: str, meeting_id: str, 
+                                file_size_bytes: int) -> Dict:
+        """
+        Insert initial 'queued' status when audio is uploaded.
+        Uses ON CONFLICT DO NOTHING to prevent duplicates.
+        """
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                INSERT INTO processed_audio_files 
+                (blob_name, meeting_id, status, processed_datetime, file_size_bytes)
+                VALUES (%s, %s, 'queued', NOW(), %s)
+                ON CONFLICT (blob_name) DO NOTHING
+                RETURNING blob_name;
+            """
+            cursor.execute(query, (blob_name, meeting_id, file_size_bytes))
+            result = cursor.fetchone()
+            self.conn.commit()
+            cursor.close()
+            
+            if result:
+                return {"success": True, "message": "Audio queued for transcription"}
+            else:
+                return {"success": True, "message": "Audio already queued"}
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error queueing audio: {e}"}
+
+
+    def check_meeting_transcription_status(self, meeting_id: str) -> Dict:
+        """
+        Check if all audio files for a meeting have finished processing.
+        
+        Returns:
+            Dict with completion status and counts by status type
+        """
+        try:
+            cursor = self.conn.cursor()
+            query = """
+                SELECT status, COUNT(*) as count
+                FROM processed_audio_files
+                WHERE meeting_id = %s
+                GROUP BY status;
+            """
+            cursor.execute(query, (meeting_id,))
+            results = cursor.fetchall()
+            cursor.close()
+            
+            # Initialize counts
+            status_counts = {
+                "queued": 0,
+                "processing": 0,
+                "completed": 0,
+                "failed": 0
+            }
+            
+            total_files = 0
+            for row in results:
+                status = row[0]
+                count = row[1]
+                if status in status_counts:
+                    status_counts[status] = count
+                total_files += count
+            
+            # All completed if no files are queued or processing
+            all_completed = (status_counts["queued"] + status_counts["processing"]) == 0
+            
+            return {
+                "success": True,
+                "all_completed": all_completed,
+                "total_files": total_files,
+                **status_counts
+            }
+            
+        except Error as e:
+            print(f"Error checking transcription status: {e}")
+            return {
+                "success": False,
+                "message": f"Error checking status: {e}",
+                "all_completed": False,
+                "total_files": 0,
+                "queued": 0,
+                "processing": 0,
+                "completed": 0,
+                "failed": 0
+            }
