@@ -37,11 +37,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://web-providend-ai-dev-qadujv.azurewebsites.net",
-    ],
+    allow_origins=os.getenv("CORS_ORIGINS"),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
