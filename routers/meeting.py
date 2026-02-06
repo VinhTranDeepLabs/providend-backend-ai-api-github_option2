@@ -134,9 +134,9 @@ async def end_meeting(meeting_id: str, conn=Depends(get_conn)):
     End a meeting and aggregate transcript segments
     
     This endpoint:
-    1. Attempts to aggregate transcript segments (up to 3 retries on failure)
-    2. Updates meeting status to "Completed" regardless of aggregation result
-    3. Allows meetings to end even if there are no transcript segments
+    1. Checks if meeting has already ended (skip if so)
+    2. Checks if transcript already exists (skip aggregation if so)
+    3. Updates meeting status to "Completed" regardless of aggregation result
     
     Args:
         meeting_id: the Meeting ID
@@ -144,71 +144,71 @@ async def end_meeting(meeting_id: str, conn=Depends(get_conn)):
     Returns:
         Detailed response about aggregation and status update
     """
-    # Try to aggregate transcript segments (with retries)
-    max_retries = 3
+    # 1. Check if meeting has already been ended
+    existing_meeting = meeting_service.get_meeting(meeting_id, conn=conn)
+    if existing_meeting and existing_meeting.get("status") == "Completed":
+        return {
+            "success": True,
+            "message": "Meeting has already been ended",
+            "meeting_id": meeting_id,
+            "transcript_aggregated": False,
+            "segment_count": 0,
+            "status_updated": False
+        }
+    
+    # 2. Check if transcript already exists (skip aggregation if so)
+    details = meeting_service.get_meeting_detail(meeting_id, conn=conn)
+    transcript_already_exists = details and details.get("transcript")
+    
     aggregation_success = False
     segment_count = 0
     aggregation_error = None
     
-    # Check if meeting has already been ended
-    existing_meeting = meeting_service.get_meeting(meeting_id, conn=conn)
-    if existing_meeting:
-        if existing_meeting.get("status") == "Completed":
-            return {
-                "success": True,
-                "message": "Meeting has already been ended",
-                "meeting_id": meeting_id,
-                "transcript_aggregated": True,
-                "segment_count": 0,
-                "status_updated": False
-            }
-    
-    for attempt in range(1, max_retries + 1):
-        try:
-            # Attempt aggregation
-            agg_result = meeting_service.aggregate_meeting_transcripts(
-                meeting_id=meeting_id,
-                separator="\n",
-                save_to_details=True,
-                conn=conn
-            )
-            
-            if agg_result.get("success"):
-                aggregation_success = True
-                segment_count = agg_result.get("segment_count", 0)
-                break
-            else:
-                # Check if it's just "no segments" (which is acceptable)
-                error_msg = agg_result.get("message", "")
-                if "No transcript segments found" in error_msg:
-                    # No segments is acceptable - not an error
+    if transcript_already_exists:
+        aggregation_success = True
+    else:
+        # Try to aggregate transcript segments (with retries)
+        max_retries = 3
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                agg_result = meeting_service.aggregate_meeting_transcripts(
+                    meeting_id=meeting_id,
+                    separator="\n",
+                    save_to_details=True,
+                    conn=conn
+                )
+                
+                if agg_result.get("success"):
                     aggregation_success = True
-                    segment_count = 0
+                    segment_count = agg_result.get("segment_count", 0)
                     break
                 else:
-                    # Actual error - retry if attempts remaining
-                    aggregation_error = error_msg
-                    if attempt < max_retries:
-                        continue  # Retry
-                    
-        except Exception as e:
-            # Exception occurred - retry if attempts remaining
-            aggregation_error = str(e)
-            if attempt < max_retries:
-                continue  # Retry
+                    error_msg = agg_result.get("message", "")
+                    if "No transcript segments found" in error_msg:
+                        aggregation_success = True
+                        segment_count = 0
+                        break
+                    else:
+                        aggregation_error = error_msg
+                        if attempt < max_retries:
+                            continue
+                        
+            except Exception as e:
+                aggregation_error = str(e)
+                if attempt < max_retries:
+                    continue
+        
+        if not aggregation_success:
+            aggregation_error = aggregation_error or "Unable to get transcript segments"
     
-    # If aggregation ultimately failed after all retries
-    if not aggregation_success:
-        aggregation_error = "Unable to get transcript segments"
-    
-    # Update meeting status to Completed regardless of aggregation result
+    # 3. Update meeting status to Completed regardless of aggregation result
     status_result = meeting_service.update_meeting_status(
         meeting_id, 
         "Completed", 
         conn=conn
     )
     
-    # Build response
     if status_result.get("success"):
         return {
             "success": True,
