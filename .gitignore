@@ -214,3 +214,12 @@ playground.py
 tests/outputs/transcript.txt
 playground2.py
 .env-uat
+tests/bench
+tests/evaluate/.deepeval
+tests/evaluate/.env.local
+tests/evaluate/chatbot_test_results.json
+tests/evaluate/summary_test_results.json
+.env.local
+tests/test_batch_transcribe.py
+tests/test_transcribe.py
+.deepeval/.deepeval_telemetry.txt
