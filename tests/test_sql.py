@@ -96,10 +96,10 @@ def create_database_tables(connection):
             meeting_id VARCHAR(100) PRIMARY KEY,
             client_id VARCHAR(100) REFERENCES clients(client_id) ON DELETE CASCADE,
             advisor_id VARCHAR(100) REFERENCES advisors(advisor_id) ON DELETE SET NULL,
-            meeting_name VARCHAR(200) DEFAULT 'Scheduled meeting',
             meeting_type VARCHAR(50),
             created_datetime TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            status VARCHAR(50)
+            status VARCHAR(50),
+            meeting_name VARCHAR(200) DEFAULT 'Scheduled meeting'
         );
     """
     
@@ -111,7 +111,6 @@ def create_database_tables(connection):
             summary TEXT,
             recommendations TEXT,
             questions TEXT,
-            question_tracker TEXT,
             advisor_notes TEXT,
             updated_datetime TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -321,10 +320,7 @@ def create_database_tables(connection):
         END $$;
     """
     
-    
-    if execute_command(connection, add_question_tracker):
-        print("✓ 'question_tracker' column added")
-    
+       
     if execute_command(connection, add_processing_status):
         print("✓ 'processing_status' column added")
     
@@ -406,14 +402,14 @@ def drop_database_tables(connection):
     drop_chat = "DROP TABLE IF EXISTS chat CASCADE;"
 
     print("\nDropping tables (if they exist)...")
-    if execute_command(connection, drop_feedback):
-        print("✓ 'feedback' dropped (if existed)")
+    # if execute_command(connection, drop_feedback):
+    #     print("✓ 'feedback' dropped (if existed)")
     # if execute_command(connection, drop_transcript_aggregator):
     #     print("✓ 'transcript_aggregator' dropped (if existed)")
     # if execute_command(connection, drop_client_products):
     #     print("✓ 'client_products' dropped (if existed)")
-    # if execute_command(connection, drop_meeting_details):
-    #     print("✓ 'meeting_details' dropped (if existed)")
+    if execute_command(connection, drop_meeting_details):
+        print("✓ 'meeting_details' dropped (if existed)")
     # if execute_command(connection, drop_meetings):
     #     print("✓ 'meetings' dropped (if existed)")
     # if execute_command(connection, drop_clients):
@@ -422,12 +418,12 @@ def drop_database_tables(connection):
     #     print("✓ 'products' dropped (if existed)")
     # if execute_command(connection, drop_advisors):
     #     print("✓ 'advisors' dropped (if existed)")
-    if execute_command(connection, drop_meeting_content_versions):
-        print("✓ 'meeting_content_versions' dropped (if existed)")
-    if execute_command(connection, drop_message):
-        print("✓ 'message' dropped (if existed)")
-    if execute_command(connection, drop_chat):
-        print("✓ 'chat' dropped (if existed)")
+    # if execute_command(connection, drop_meeting_content_versions):
+    #     print("✓ 'meeting_content_versions' dropped (if existed)")
+    # if execute_command(connection, drop_message):
+    #     print("✓ 'message' dropped (if existed)")
+    # if execute_command(connection, drop_chat):
+    #     print("✓ 'chat' dropped (if existed)")
         
 
 def view_table_columns(connection, table_name):
