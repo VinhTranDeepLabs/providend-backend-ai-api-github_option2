@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from routers import login, question_analysis, meeting, question_template, advisor, client, transcript, process, feedback, chat
+from services.question_template_service import QuestionTemplateService
 import uvicorn
 
 # Load environment variables
@@ -76,6 +77,10 @@ def _startup_db():
     if conn is None:
         print("Warning: DB connection unavailable on startup (app.state.db_conn not set)")
     app.state.db_conn = conn
+
+    # Load CATEGORIZED_QUESTIONS from DB (falls back to hardcoded defaults if empty)
+    if conn:
+        QuestionTemplateService(conn).refresh_categorized_questions()
 
 
 @app.on_event("shutdown")

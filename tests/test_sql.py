@@ -212,7 +212,43 @@ def create_database_tables(connection):
             deleted_at TIMESTAMPTZ NULL
         );
     """
-    
+
+    # Table 12: Question Template
+    create_question_template_table = """
+        CREATE TABLE IF NOT EXISTS question_template (
+            template_id VARCHAR(100) PRIMARY KEY,
+            template_name VARCHAR(200) NOT NULL,
+            template_owner VARCHAR(200),
+            template_type VARCHAR(50) NOT NULL DEFAULT 'with-section',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """
+
+    # Table 13: Question Section
+    create_question_section_table = """
+        CREATE TABLE IF NOT EXISTS question_section (
+            section_id VARCHAR(100) PRIMARY KEY,
+            template_id VARCHAR(100) REFERENCES question_template(template_id) ON DELETE CASCADE,
+            name VARCHAR(200) NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """
+
+    # Table 14: Question
+    create_question_table = """
+        CREATE TABLE IF NOT EXISTS question (
+            question_id VARCHAR(100) PRIMARY KEY,
+            section_id VARCHAR(100) REFERENCES question_section(section_id) ON DELETE CASCADE,
+            content TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """
+
     print("\nCreating tables...")
     if execute_command(connection, create_advisors_table):
         print("✓ 'advisors' table created")
@@ -249,6 +285,15 @@ def create_database_tables(connection):
     
     if execute_command(connection, create_message_table):
         print("✓ 'message' table created")
+
+    if execute_command(connection, create_question_template_table):
+        print("✓ 'question_template' table created")
+
+    if execute_command(connection, create_question_section_table):
+        print("✓ 'question_section' table created")
+
+    if execute_command(connection, create_question_table):
+        print("✓ 'question' table created")
 
     # ==================== ADD PROCESSING COLUMNS TO MEETING_DETAILS ====================
     print("\n--- Adding Processing Columns to meeting_details ---")
@@ -400,6 +445,9 @@ def drop_database_tables(connection):
     drop_meeting_content_versions = "DROP TABLE IF EXISTS meeting_content_versions CASCADE;"
     drop_message = "DROP TABLE IF EXISTS message CASCADE;"
     drop_chat = "DROP TABLE IF EXISTS chat CASCADE;"
+    drop_question = "DROP TABLE IF EXISTS question CASCADE;"
+    drop_question_section = "DROP TABLE IF EXISTS question_section CASCADE;"
+    drop_question_template = "DROP TABLE IF EXISTS question_template CASCADE;"
 
     print("\nDropping tables (if they exist)...")
     # if execute_command(connection, drop_feedback):
@@ -502,6 +550,9 @@ def main():
             view_table_columns(conn, "meeting_content_versions")
             view_table_columns(conn, "chat")
             view_table_columns(conn, "message")
+            view_table_columns(conn, "question_template")
+            view_table_columns(conn, "question_section")
+            view_table_columns(conn, "question")
 
             # # # Delete all tables (uncomment to drop)
             # drop_database_tables(conn)
