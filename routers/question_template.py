@@ -1,11 +1,9 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
-from pydantic import BaseModel, Field, model_validator, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 from services.question_template_service import QuestionTemplateService
-from typing import Optional, Dict, List, Union
+from typing import Optional, Dict, List
 
 router = APIRouter()
-
-DEFAULT_SECTION = "uncategorized"
 
 
 def get_conn(request: Request):
@@ -38,26 +36,10 @@ class TemplateRequest(BaseModel):
     template_name: str = Field(..., description="Template name", examples=["Total Client Profile"])
     template_owner: Optional[str] = Field(None, description="Template owner", examples=["advisor-001"])
     template_type: Optional[str] = Field("with-section", description="Template type: 'with-section' or 'without-section'", examples=["with-section"])
-    questions: Union[Dict[str, List[str]], List[str]] = Field(
+    questions: Dict[str, List[str]] = Field(
         ...,
-        description="For 'with-section': dict of section names to question lists. For 'without-section': flat list of questions."
+        description="Dict of section names to question lists. For 'without-section', use names like 'section-a', 'section-b', 'uncategorized'."
     )
-
-    @model_validator(mode="after")
-    def validate_questions_format(self):
-        if self.template_type == "without-section":
-            if not isinstance(self.questions, list):
-                raise ValueError("'questions' must be a list when template_type is 'without-section'")
-        else:
-            if not isinstance(self.questions, dict):
-                raise ValueError("'questions' must be a dict of sections when template_type is 'with-section'")
-        return self
-
-    def get_sections(self) -> Dict[str, List[str]]:
-        """Return sections dict — wraps flat questions under a default key for without-section."""
-        if self.template_type == "without-section":
-            return {DEFAULT_SECTION: self.questions}
-        return self.questions
 
 
 class TemplateContentList(BaseModel):
@@ -120,9 +102,9 @@ class TemplateDetailResponse(BaseModel):
     template_type: str = Field(..., examples=["with-section"])
     created_at: Optional[str] = Field(None, examples=["2025-06-15T10:30:00"])
     updated_at: Optional[str] = Field(None, examples=["2025-06-15T10:30:00"])
-    questions: Union[Dict[str, List[str]], List[str]] = Field(
+    questions: Dict[str, List[str]] = Field(
         ...,
-        description="For 'with-section': dict of section names to question lists. For 'without-section': flat list of questions."
+        description="Dict of section names to question lists."
     )
 
 
@@ -195,7 +177,7 @@ async def get_detailed_template(template_id: str, conn=Depends(get_conn)):
 async def create_template(request: TemplateRequest, conn=Depends(get_conn)):
     """Create a new template with all sections and questions"""
     service = QuestionTemplateService(conn)
-    result = service.create_detailed_template(request.template_name, request.get_sections(), request.template_owner, request.template_type)
+    result = service.create_detailed_template(request.template_name, request.questions, request.template_owner, request.template_type)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     service.refresh_categorized_questions()
@@ -208,7 +190,7 @@ async def create_template(request: TemplateRequest, conn=Depends(get_conn)):
 async def save_template(template_id: str, request: TemplateRequest, conn=Depends(get_conn)):
     """Save button — full replace of sections and questions"""
     service = QuestionTemplateService(conn)
-    result = service.save_detailed_template(template_id, request.template_name, request.get_sections(), request.template_owner, request.template_type)
+    result = service.save_detailed_template(template_id, request.template_name, request.questions, request.template_owner, request.template_type)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     service.refresh_categorized_questions()

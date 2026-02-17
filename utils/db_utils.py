@@ -2441,18 +2441,11 @@ class DatabaseUtils:
 
             sections = self.list_question_sections(template_id)
 
-            if template_type == "without-section":
-                all_questions = []
-                for section in sections:
-                    questions = self.list_questions_by_section(section["section_id"])
-                    all_questions.extend([q["content"] for q in questions])
-                template["questions"] = all_questions
-            else:
-                sections_dict = {}
-                for section in sections:
-                    questions = self.list_questions_by_section(section["section_id"])
-                    sections_dict[section["name"]] = [q["content"] for q in questions]
-                template["questions"] = sections_dict
+            sections_dict = {}
+            for section in sections:
+                questions = self.list_questions_by_section(section["section_id"])
+                sections_dict[section["name"]] = [q["content"] for q in questions]
+            template["questions"] = sections_dict
 
             return template
         except Error as e:
