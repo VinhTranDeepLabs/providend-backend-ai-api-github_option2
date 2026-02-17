@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from services.question_template_service import QuestionTemplateService
 from typing import Optional, Dict, List
 
 router = APIRouter()
+
+DEFAULT_SECTION = "uncategorized"
 
 
 def get_conn(request: Request):
@@ -19,12 +21,31 @@ def get_conn(request: Request):
 class TemplateRequest(BaseModel):
     template_name: str = Field(..., description="Template name")
     template_owner: Optional[str] = Field(None, description="Template owner")
-    template_id: Optional[str] = Field(None, description="Optional custom template ID (for create only)")
     template_type: Optional[str] = Field("with-section", description="Template type: 'with-section' or 'without-section'")
-    sections: Dict[str, List[str]] = Field(
-        ...,
-        description="Sections with questions. e.g. {'Section 1': ['Question 1', 'Question 2']}"
+    sections: Optional[Dict[str, List[str]]] = Field(
+        None,
+        description="Sections with questions. Required for 'with-section'. e.g. {'Section 1': ['Q1', 'Q2']}"
     )
+    questions: Optional[List[str]] = Field(
+        None,
+        description="Flat list of questions. Required for 'without-section'. e.g. ['Q1', 'Q2']"
+    )
+
+    @model_validator(mode="after")
+    def validate_sections_or_questions(self):
+        if self.template_type == "without-section":
+            if not self.questions:
+                raise ValueError("'questions' is required when template_type is 'without-section'")
+        else:
+            if not self.sections:
+                raise ValueError("'sections' is required when template_type is 'with-section'")
+        return self
+
+    def get_sections(self) -> Dict[str, List[str]]:
+        """Return sections dict — wraps flat questions under a default key for without-section."""
+        if self.template_type == "without-section":
+            return {DEFAULT_SECTION: self.questions}
+        return self.sections
 
 
 # ==================== TEMPLATE ENDPOINTS ====================
@@ -50,7 +71,7 @@ async def get_detailed_template(template_id: str, conn=Depends(get_conn)):
 async def create_template(request: TemplateRequest, conn=Depends(get_conn)):
     """Create a new template with all sections and questions"""
     service = QuestionTemplateService(conn)
-    result = service.create_detailed_template(request.template_name, request.sections, request.template_owner, request.template_id, request.template_type)
+    result = service.create_detailed_template(request.template_name, request.get_sections(), request.template_owner, request.template_type)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     service.refresh_categorized_questions()
@@ -61,7 +82,7 @@ async def create_template(request: TemplateRequest, conn=Depends(get_conn)):
 async def save_template(template_id: str, request: TemplateRequest, conn=Depends(get_conn)):
     """Save button — full replace of sections and questions"""
     service = QuestionTemplateService(conn)
-    result = service.save_detailed_template(template_id, request.template_name, request.sections, request.template_owner, request.template_type)
+    result = service.save_detailed_template(template_id, request.template_name, request.get_sections(), request.template_owner, request.template_type)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     service.refresh_categorized_questions()

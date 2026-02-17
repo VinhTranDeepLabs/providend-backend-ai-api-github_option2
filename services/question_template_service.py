@@ -16,10 +16,9 @@ class QuestionTemplateService:
         """Get a complete template with all sections and questions"""
         return self.db.get_detailed_template(template_id)
 
-    def create_detailed_template(self, template_name: str, sections: Dict[str, List[str]], template_owner: str = None, template_id: str = None, template_type: str = "with-section") -> Dict:
+    def create_detailed_template(self, template_name: str, sections: Dict[str, List[str]], template_owner: str = None, template_type: str = "with-section") -> Dict:
         """Create a new template with all sections and questions"""
-        if not template_id:
-            template_id = str(uuid.uuid4())
+        template_id = str(uuid.uuid4())
         return self.db.create_detailed_template(template_id, template_name, sections, template_owner, template_type)
 
     def save_detailed_template(self, template_id: str, template_name: str, sections: Dict[str, List[str]], template_owner: str = None, template_type: str = None) -> Dict:

@@ -2436,19 +2436,29 @@ class DatabaseUtils:
             if not result:
                 return None
 
+            template_type = result[3]
             template = {
                 "template_id": result[0],
                 "template_name": result[1],
                 "template_owner": result[2],
-                "created_at": result[3],
-                "updated_at": result[4]
+                "template_type": template_type,
+                "created_at": result[4],
+                "updated_at": result[5]
             }
 
             sections = self.list_question_sections(template_id)
-            template["sections"] = {}
-            for section in sections:
-                questions = self.list_questions_by_section(section["section_id"])
-                template["sections"][section["name"]] = [q["content"] for q in questions]
+
+            if template_type == "without-section":
+                all_questions = []
+                for section in sections:
+                    questions = self.list_questions_by_section(section["section_id"])
+                    all_questions.extend([q["content"] for q in questions])
+                template["questions"] = all_questions
+            else:
+                template["sections"] = {}
+                for section in sections:
+                    questions = self.list_questions_by_section(section["section_id"])
+                    template["sections"][section["name"]] = [q["content"] for q in questions]
 
             return template
         except Error as e:
