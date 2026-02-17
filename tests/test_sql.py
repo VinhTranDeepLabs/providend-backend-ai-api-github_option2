@@ -18,7 +18,7 @@ def create_connection():
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
             port=os.getenv("DB_PORT", "5432"),
-            # sslmode="require"  # Azure requires SSL
+            sslmode="require"  # Azure requires SSL
         )
         print("os.getenv(DB_HOST): ",os.getenv("DB_HOST"))    
         print("os.getenv(DB_NAME): ",os.getenv("DB_NAME"))
