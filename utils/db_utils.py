@@ -2335,15 +2335,14 @@ class DatabaseUtils:
             results = cursor.fetchall()
             cursor.close()
 
-            type_display = {"with-section": "With Section", "without-section": "Without Section"}
             templates = []
             for row in results:
                 templates.append({
                     "template_id": row[0],
                     "template_name": row[1],
                     "template_owner": row[2],
-                    "type": type_display.get(row[3], row[3]),
-                    "last_modified": row[4],
+                    "template_type": row[3],
+                    "last_modified": row[4].isoformat() if row[4] else None,
                     "number_of_questions": row[5] or 0
                 })
             return templates
@@ -2363,6 +2362,7 @@ class DatabaseUtils:
         except Error as e:
             self.conn.rollback()
             return {"success": False, "message": f"Error deleting question template: {e}"}
+
 
     # ==================== QUESTION SECTION OPERATIONS ====================
 
@@ -2389,18 +2389,12 @@ class DatabaseUtils:
             print(f"Error listing question sections: {e}")
             return []
 
-    def list_questions_by_section(self, section_id: str, active_only: bool = True) -> List[Dict]:
+    def list_questions_by_section(self, section_id: str) -> List[Dict]:
         """List all questions for a given section, ordered by sort_order"""
         try:
             cursor = self.conn.cursor()
-            query = "SELECT * FROM question WHERE section_id = %s"
-            params = [section_id]
-
-            if active_only:
-                query += " AND is_active = TRUE"
-
-            query += " ORDER BY sort_order;"
-            cursor.execute(query, params)
+            query = "SELECT * FROM question WHERE section_id = %s ORDER BY sort_order;"
+            cursor.execute(query, (section_id,))
             results = cursor.fetchall()
             cursor.close()
 
@@ -2411,9 +2405,8 @@ class DatabaseUtils:
                     "section_id": row[1],
                     "content": row[2],
                     "sort_order": row[3],
-                    "is_active": row[4],
-                    "created_at": row[5],
-                    "updated_at": row[6]
+                    "created_at": row[4],
+                    "updated_at": row[5]
                 })
             return questions
         except Error as e:
@@ -2442,8 +2435,8 @@ class DatabaseUtils:
                 "template_name": result[1],
                 "template_owner": result[2],
                 "template_type": template_type,
-                "created_at": result[4],
-                "updated_at": result[5]
+                "created_at": result[4].isoformat() if result[4] else None,
+                "updated_at": result[5].isoformat() if result[5] else None
             }
 
             sections = self.list_question_sections(template_id)
@@ -2455,10 +2448,11 @@ class DatabaseUtils:
                     all_questions.extend([q["content"] for q in questions])
                 template["questions"] = all_questions
             else:
-                template["sections"] = {}
+                sections_dict = {}
                 for section in sections:
                     questions = self.list_questions_by_section(section["section_id"])
-                    template["sections"][section["name"]] = [q["content"] for q in questions]
+                    sections_dict[section["name"]] = [q["content"] for q in questions]
+                template["questions"] = sections_dict
 
             return template
         except Error as e:
@@ -2511,8 +2505,10 @@ class DatabaseUtils:
                 (template_id, template_name, template_owner, template_type)
             )
 
-            # Create sections and questions
+            # Create sections and questions (skip sections with no questions)
             for sort_order, (section_name, questions) in enumerate(sections.items()):
+                if not questions:
+                    continue
                 section_id = str(uuid.uuid4())
                 cursor.execute(
                     "INSERT INTO question_section (section_id, template_id, name, sort_order, created_at) VALUES (%s, %s, %s, %s, NOW());",
@@ -2521,7 +2517,7 @@ class DatabaseUtils:
                 for q_order, content in enumerate(questions):
                     question_id = str(uuid.uuid4())
                     cursor.execute(
-                        "INSERT INTO question (question_id, section_id, content, sort_order, is_active, created_at, updated_at) VALUES (%s, %s, %s, %s, TRUE, NOW(), NOW());",
+                        "INSERT INTO question (question_id, section_id, content, sort_order, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW());",
                         (question_id, section_id, content, q_order)
                     )
 
@@ -2562,8 +2558,10 @@ class DatabaseUtils:
                 (template_id,)
             )
 
-            # Insert new sections and questions
+            # Insert new sections and questions (skip sections with no questions)
             for sort_order, (section_name, questions) in enumerate(sections.items()):
+                if not questions:
+                    continue
                 section_id = str(uuid.uuid4())
                 cursor.execute(
                     "INSERT INTO question_section (section_id, template_id, name, sort_order, created_at) VALUES (%s, %s, %s, %s, NOW());",
@@ -2572,7 +2570,7 @@ class DatabaseUtils:
                 for q_order, content in enumerate(questions):
                     question_id = str(uuid.uuid4())
                     cursor.execute(
-                        "INSERT INTO question (question_id, section_id, content, sort_order, is_active, created_at, updated_at) VALUES (%s, %s, %s, %s, TRUE, NOW(), NOW());",
+                        "INSERT INTO question (question_id, section_id, content, sort_order, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW());",
                         (question_id, section_id, content, q_order)
                     )
 

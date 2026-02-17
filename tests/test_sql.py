@@ -18,8 +18,10 @@ def create_connection():
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
             port=os.getenv("DB_PORT", "5432"),
-            sslmode="require"  # Azure requires SSL
+            # sslmode="require"  # Azure requires SSL
         )
+        print("os.getenv(DB_HOST): ",os.getenv("DB_HOST"))    
+        print("os.getenv(DB_NAME): ",os.getenv("DB_NAME"))
         print("✓ Successfully connected to PostgreSQL database")
         return connection
     
@@ -243,7 +245,6 @@ def create_database_tables(connection):
             section_id VARCHAR(100) REFERENCES question_section(section_id) ON DELETE CASCADE,
             content TEXT NOT NULL,
             sort_order INTEGER NOT NULL DEFAULT 0,
-            is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -456,8 +457,8 @@ def drop_database_tables(connection):
     #     print("✓ 'transcript_aggregator' dropped (if existed)")
     # if execute_command(connection, drop_client_products):
     #     print("✓ 'client_products' dropped (if existed)")
-    if execute_command(connection, drop_meeting_details):
-        print("✓ 'meeting_details' dropped (if existed)")
+    # if execute_command(connection, drop_meeting_details):
+    #     print("✓ 'meeting_details' dropped (if existed)")
     # if execute_command(connection, drop_meetings):
     #     print("✓ 'meetings' dropped (if existed)")
     # if execute_command(connection, drop_clients):
@@ -472,6 +473,12 @@ def drop_database_tables(connection):
     #     print("✓ 'message' dropped (if existed)")
     # if execute_command(connection, drop_chat):
     #     print("✓ 'chat' dropped (if existed)")
+    # if execute_command(connection, drop_question):
+    #     print("✓ 'question' dropped (if existed)")
+    # if execute_command(connection, drop_question_section):
+    #     print("✓ 'question_section' dropped (if existed)")
+    # if execute_command(connection, drop_question_template):
+    #     print("✓ 'question_template' dropped (if existed)")
         
 
 def view_table_columns(connection, table_name):
