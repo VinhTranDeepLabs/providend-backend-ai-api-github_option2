@@ -1,3 +1,4 @@
+import math
 import psycopg2
 from psycopg2 import Error
 from typing import List, Dict, Optional, Any
@@ -2313,11 +2314,42 @@ class DatabaseUtils:
 
     # ==================== QUESTION TEMPLATE OPERATIONS ====================
 
-    def list_question_templates(self) -> List[Dict]:
-        """List all question templates with type and question count"""
+    def list_question_templates(self, page: int = None, rows_per_page: int = None, template_name: str = None) -> Dict:
+        """List question templates with optional pagination and name filter.
+        When page/rows_per_page are None, returns all templates."""
         try:
             cursor = self.conn.cursor()
-            query = """
+            params = []
+
+            where_clause = ""
+            if template_name:
+                where_clause = "WHERE LOWER(t.template_name) LIKE LOWER(%s)"
+                params.append(f"%{template_name}%")
+
+            # Count total matching templates
+            count_query = f"""
+                SELECT COUNT(DISTINCT t.template_id)
+                FROM question_template t
+                {where_clause};
+            """
+            cursor.execute(count_query, params)
+            total = cursor.fetchone()[0]
+
+            # Clamp page to valid range based on filtered total
+            if page is not None and rows_per_page is not None:
+                last_page = math.ceil(total / rows_per_page) if total > 0 and rows_per_page > 0 else 1
+                if page > last_page:
+                    page = last_page
+
+            # Fetch results
+            pagination_clause = ""
+            data_params = list(params)
+            if page is not None and rows_per_page is not None:
+                offset = (page - 1) * rows_per_page
+                pagination_clause = "LIMIT %s OFFSET %s"
+                data_params += [rows_per_page, offset]
+
+            data_query = f"""
                 SELECT
                     t.template_id,
                     t.template_name,
@@ -2328,10 +2360,12 @@ class DatabaseUtils:
                 FROM question_template t
                 LEFT JOIN question_section s ON s.template_id = t.template_id
                 LEFT JOIN question q ON q.section_id = s.section_id
+                {where_clause}
                 GROUP BY t.template_id, t.template_name, t.template_owner, t.template_type, t.updated_at, t.created_at
-                ORDER BY t.created_at;
+                ORDER BY t.created_at
+                {pagination_clause};
             """
-            cursor.execute(query)
+            cursor.execute(data_query, data_params)
             results = cursor.fetchall()
             cursor.close()
 
@@ -2345,10 +2379,18 @@ class DatabaseUtils:
                     "last_modified": row[4].isoformat() if row[4] else None,
                     "number_of_questions": row[5] or 0
                 })
-            return templates
+            if page is not None and rows_per_page is not None:
+                start = (page - 1) * rows_per_page + 1
+                end = min(page * rows_per_page, total)
+            else:
+                start = 1 if total > 0 else 0
+                end = total
+                last_page = 1
+
+            return {"templates": templates, "item_total": total, "page": page, "rows_per_page": rows_per_page, "item_start": start, "item_end": end, "last_page": last_page}
         except Error as e:
             print(f"Error listing question templates: {e}")
-            return []
+            return {"templates": [], "item_total": 0, "page": page, "rows_per_page": rows_per_page, "item_start": 0, "item_end": 0, "last_page": 0}
 
     def delete_question_template(self, template_id: str) -> Dict:
         """Delete a question template (cascades to sections and questions)"""
@@ -2462,8 +2504,7 @@ class DatabaseUtils:
         """
         try:
             result = {}
-            templates = self.list_question_templates()
-
+            templates = self.list_question_templates()["templates"]
             for template in templates:
                 template_name = template["template_name"]
                 template_id = template["template_id"]

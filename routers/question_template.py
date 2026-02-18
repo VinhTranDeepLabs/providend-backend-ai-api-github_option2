@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from pydantic import BaseModel, Field, ConfigDict
 from services.question_template_service import QuestionTemplateService
 from typing import Optional, Dict, List
@@ -70,10 +70,22 @@ class TemplateListResponse(BaseModel):
                 "last_modified": "2025-06-14T08:00:00",
                 "number_of_questions": 5
             }
-        ]
+        ],
+        "item_total": 8,
+        "page": 1,
+        "rows_per_page": 2,
+        "item_start": 1,
+        "item_end": 2,
+        "last_page": 4
     }})
 
-    templates: List[TemplateContentList]
+    templates: List[TemplateContentList] = Field(..., description="List of templates for the current page")
+    item_total: int = Field(..., description="Total number of templates matching the filter across all pages", examples=[8])
+    page: int = Field(..., description="Current page number (1-based)", examples=[1])
+    rows_per_page: int = Field(..., description="Number of rows displayed per page", examples=[2])
+    item_start: int = Field(..., description="1-based index of the first item on the current page (e.g. 1 in '1-2 of 8')", examples=[1])
+    item_end: int = Field(..., description="1-based index of the last item on the current page (e.g. 2 in '1-2 of 8')", examples=[2])
+    last_page: int = Field(..., description="Total number of pages available (e.g. 4 when item_total=8 and rows_per_page=2)", examples=[4])
 
 
 class TemplateDetailResponse(BaseModel):
@@ -153,10 +165,20 @@ class ErrorResponse(BaseModel):
 # ==================== TEMPLATE ENDPOINTS ====================
 
 @router.get("/all", response_model=TemplateListResponse)
-async def get_all_templates(conn=Depends(get_conn)):
-    """List all question templates"""
+async def get_all_templates(
+    page: int = Query(1, ge=1, description="Page number (1-based). Determines which page of results to return."),
+    rows_per_page: int = Query(10, ge=1, le=100, description="Number of rows per page. Controls how many templates are returned in a single response."),
+    template_name: Optional[str] = Query(None, description="Filter by template name using case-insensitive partial match. Example: 'client' matches 'Total Client Profile'."),
+    conn=Depends(get_conn),
+):
+    """List all question templates with pagination and optional name filter.
+
+    Returns a paginated list of templates along with pagination metadata
+    (item_total, item_start, item_end) to support UI pagination controls
+    like 'item_start - item_end of item_total'."""
     service = QuestionTemplateService(conn)
-    return {"templates": service.get_all_templates()}
+    result = service.get_all_templates(page=page, rows_per_page=rows_per_page, template_name=template_name)
+    return result
 
 
 @router.get("/{template_id}", response_model=TemplateDetailResponse, responses={
