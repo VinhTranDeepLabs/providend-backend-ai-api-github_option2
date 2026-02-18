@@ -8,9 +8,9 @@ class QuestionTemplateService:
     def __init__(self, conn):
         self.db = DatabaseUtils(conn)
 
-    def get_all_templates(self) -> List[Dict]:
-        """List all question templates"""
-        return self.db.list_question_templates()
+    def get_all_templates(self, page: int = 1, rows_per_page: int = 10, template_name: str = None) -> Dict:
+        """List all question templates with pagination and optional name filter"""
+        return self.db.list_question_templates(page=page, rows_per_page=rows_per_page, template_name=template_name)
 
     def get_detailed_template(self, template_id: str) -> Optional[Dict]:
         """Get a complete template with all sections and questions"""
@@ -44,7 +44,7 @@ class QuestionTemplateService:
         """
         try:
             db_questions = self.db.get_categorized_questions()
-
+            
             if db_questions:
                 CATEGORIZED_QUESTIONS.clear()
                 CATEGORIZED_QUESTIONS.update(db_questions)
