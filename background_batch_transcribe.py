@@ -316,7 +316,8 @@ def process_new_audio_file(blob_info: dict, conn):
         transcribe_service = TranscribeService()
         results = transcribe_service.batch_transcribe_urls(
             audio_urls=[blob_url],
-            language='auto'  # Auto-detect language
+            language='en-SG',    # Explicit locale for Singapore English
+            max_speakers=5       # Adjust based on your typical meeting size
         )
         
         if not results or len(results) == 0:

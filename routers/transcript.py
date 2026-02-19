@@ -117,7 +117,8 @@ async def batch_transcribe(request: BatchTranscribeRequest):
         # Perform batch transcription
         results = TranscribeService().batch_transcribe_urls(
             audio_urls=request.audio_urls,
-            language=request.language
+            language=request.language,
+            max_speakers=request.max_speakers
         )
         
         return BatchTranscribeResponse(

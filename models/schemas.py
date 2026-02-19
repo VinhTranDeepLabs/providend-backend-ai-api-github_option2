@@ -10,7 +10,8 @@ class TranscriptRequest(BaseModel):
 
 class BatchTranscribeRequest(BaseModel):
     audio_urls: List[str] = Field(..., description="List of audio file URLs for batch transcription")
-    language: Optional[str] = Field("en-US", description="Language code for transcription")
+    language: Optional[str] = Field("en-SG", description="Locale code for transcription (e.g., 'en-SG', 'en-US', 'zh-CN')")
+    max_speakers: Optional[int] = Field(4, ge=1, le=36, description="Maximum number of speakers for diarization")
 
 class RecommendQuestions(BaseModel):
     question_template_name: str = Field(..., description="The question template to analyze for recommending questions")
