@@ -1,3 +1,4 @@
+import math
 import psycopg2
 from psycopg2 import Error
 from typing import List, Dict, Optional, Any
@@ -2310,3 +2311,306 @@ class DatabaseUtils:
                 "completed": 0,
                 "failed": 0
             }
+
+    # ==================== QUESTION TEMPLATE OPERATIONS ====================
+
+    def list_question_templates(self, page: int = None, rows_per_page: int = None, template_name: str = None) -> Dict:
+        """List question templates with optional pagination and name filter.
+        When page/rows_per_page are None, returns all templates."""
+        try:
+            cursor = self.conn.cursor()
+            params = []
+
+            where_clause = ""
+            if template_name:
+                where_clause = "WHERE LOWER(t.template_name) LIKE LOWER(%s)"
+                params.append(f"%{template_name}%")
+
+            # Count total matching templates
+            count_query = f"""
+                SELECT COUNT(DISTINCT t.template_id)
+                FROM question_template t
+                {where_clause};
+            """
+            cursor.execute(count_query, params)
+            total = cursor.fetchone()[0]
+
+            # Clamp page to valid range based on filtered total
+            if page is not None and rows_per_page is not None:
+                last_page = math.ceil(total / rows_per_page) if total > 0 and rows_per_page > 0 else 1
+                if page > last_page:
+                    page = last_page
+
+            # Fetch results
+            pagination_clause = ""
+            data_params = list(params)
+            if page is not None and rows_per_page is not None:
+                offset = (page - 1) * rows_per_page
+                pagination_clause = "LIMIT %s OFFSET %s"
+                data_params += [rows_per_page, offset]
+
+            data_query = f"""
+                SELECT
+                    t.template_id,
+                    t.template_name,
+                    t.template_owner,
+                    t.template_type,
+                    t.updated_at,
+                    COUNT(q.question_id) AS question_count
+                FROM question_template t
+                LEFT JOIN question_section s ON s.template_id = t.template_id
+                LEFT JOIN question q ON q.section_id = s.section_id
+                {where_clause}
+                GROUP BY t.template_id, t.template_name, t.template_owner, t.template_type, t.updated_at, t.created_at
+                ORDER BY t.created_at
+                {pagination_clause};
+            """
+            cursor.execute(data_query, data_params)
+            results = cursor.fetchall()
+            cursor.close()
+
+            templates = []
+            for row in results:
+                templates.append({
+                    "template_id": row[0],
+                    "template_name": row[1],
+                    "template_owner": row[2],
+                    "template_type": row[3],
+                    "last_modified": row[4].isoformat() if row[4] else None,
+                    "number_of_questions": row[5] or 0
+                })
+            if page is not None and rows_per_page is not None:
+                start = (page - 1) * rows_per_page + 1
+                end = min(page * rows_per_page, total)
+            else:
+                start = 1 if total > 0 else 0
+                end = total
+                last_page = 1
+
+            return {"templates": templates, "item_total": total, "page": page, "rows_per_page": rows_per_page, "item_start": start, "item_end": end, "last_page": last_page}
+        except Error as e:
+            print(f"Error listing question templates: {e}")
+            return {"templates": [], "item_total": 0, "page": page, "rows_per_page": rows_per_page, "item_start": 0, "item_end": 0, "last_page": 0}
+
+    def delete_question_template(self, template_id: str) -> Dict:
+        """Delete a question template (cascades to sections and questions)"""
+        try:
+            cursor = self.conn.cursor()
+            query = "DELETE FROM question_template WHERE template_id = %s;"
+            cursor.execute(query, (template_id,))
+            self.conn.commit()
+            cursor.close()
+            return {"success": True, "message": "Question template deleted successfully"}
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error deleting question template: {e}"}
+
+
+    # ==================== QUESTION SECTION OPERATIONS ====================
+
+    def list_question_sections(self, template_id: str) -> List[Dict]:
+        """List all sections for a given template, ordered by sort_order"""
+        try:
+            cursor = self.conn.cursor()
+            query = "SELECT * FROM question_section WHERE template_id = %s ORDER BY sort_order;"
+            cursor.execute(query, (template_id,))
+            results = cursor.fetchall()
+            cursor.close()
+
+            sections = []
+            for row in results:
+                sections.append({
+                    "section_id": row[0],
+                    "template_id": row[1],
+                    "name": row[2],
+                    "sort_order": row[3],
+                    "created_at": row[4]
+                })
+            return sections
+        except Error as e:
+            print(f"Error listing question sections: {e}")
+            return []
+
+    def list_questions_by_section(self, section_id: str) -> List[Dict]:
+        """List all questions for a given section, ordered by sort_order"""
+        try:
+            cursor = self.conn.cursor()
+            query = "SELECT * FROM question WHERE section_id = %s ORDER BY sort_order;"
+            cursor.execute(query, (section_id,))
+            results = cursor.fetchall()
+            cursor.close()
+
+            questions = []
+            for row in results:
+                questions.append({
+                    "question_id": row[0],
+                    "section_id": row[1],
+                    "content": row[2],
+                    "sort_order": row[3],
+                    "created_at": row[4],
+                    "updated_at": row[5]
+                })
+            return questions
+        except Error as e:
+            print(f"Error listing questions: {e}")
+            return []
+
+    # ==================== DETAILED TEMPLATE OPERATIONS ====================
+
+
+    # ==================== FULL TEMPLATE WITH QUESTIONS ====================
+
+    def get_detailed_template(self, template_id: str) -> Optional[Dict]:
+        """Get a complete template with all sections and questions (structured like TCP_QUESTIONS)"""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT * FROM question_template WHERE template_id = %s;", (template_id,))
+            result = cursor.fetchone()
+            cursor.close()
+
+            if not result:
+                return None
+
+            template_type = result[3]
+            template = {
+                "template_id": result[0],
+                "template_name": result[1],
+                "template_owner": result[2],
+                "template_type": template_type,
+                "created_at": result[4].isoformat() if result[4] else None,
+                "updated_at": result[5].isoformat() if result[5] else None
+            }
+
+            sections = self.list_question_sections(template_id)
+
+            sections_dict = {}
+            for section in sections:
+                questions = self.list_questions_by_section(section["section_id"])
+                sections_dict[section["name"]] = [q["content"] for q in questions]
+            template["questions"] = sections_dict
+
+            return template
+        except Error as e:
+            print(f"Error fetching detailed template: {e}")
+            return None
+
+    def get_categorized_questions(self) -> Dict[str, Dict[str, List[str]]]:
+        """
+        Returns data in the exact same format as CATEGORIZED_QUESTIONS from config/questions.py.
+
+        Format: {template_name: {section_name: [question_strings]}}
+
+        Uses template_name as the key (e.g. "Total Client Profile", "Pre Discovery").
+        """
+        try:
+            result = {}
+            templates = self.list_question_templates()["templates"]
+            for template in templates:
+                template_name = template["template_name"]
+                template_id = template["template_id"]
+
+                sections = self.list_question_sections(template_id)
+                sections_dict = {}
+                for section in sections:
+                    questions = self.list_questions_by_section(section["section_id"])
+                    sections_dict[section["name"]] = [q["content"] for q in questions]
+
+                result[template_name] = sections_dict
+
+            return result
+        except Error as e:
+            print(f"Error fetching categorized questions: {e}")
+            return {}
+
+    def create_detailed_template(self, template_id: str, template_name: str, sections: Dict[str, List[str]], template_owner: str = None, template_type: str = "with-section") -> Dict:
+        """
+        Bulk create a template with all sections and questions in one go.
+
+        Accepts the same format as TCP_QUESTIONS:
+            sections = {"section 1 - values": ["question 1", "question 2"], ...}
+        """
+        try:
+            import uuid
+            cursor = self.conn.cursor()
+
+            # Create template
+            cursor.execute(
+                "INSERT INTO question_template (template_id, template_name, template_owner, template_type, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW());",
+                (template_id, template_name, template_owner, template_type)
+            )
+
+            # Create sections and questions (skip sections with no questions)
+            for sort_order, (section_name, questions) in enumerate(sections.items()):
+                if not questions:
+                    continue
+                section_id = str(uuid.uuid4())
+                cursor.execute(
+                    "INSERT INTO question_section (section_id, template_id, name, sort_order, created_at) VALUES (%s, %s, %s, %s, NOW());",
+                    (section_id, template_id, section_name, sort_order)
+                )
+                for q_order, content in enumerate(questions):
+                    question_id = str(uuid.uuid4())
+                    cursor.execute(
+                        "INSERT INTO question (question_id, section_id, content, sort_order, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW());",
+                        (question_id, section_id, content, q_order)
+                    )
+
+            self.conn.commit()
+            cursor.close()
+            return {"success": True, "message": "Template created successfully", "template_id": template_id}
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error creating full template: {e}"}
+
+    def save_detailed_template(self, template_id: str, template_name: str, sections: Dict[str, List[str]], template_owner: str = None, template_type: str = None) -> Dict:
+        """
+        Full replace of a template's sections and questions.
+        Deletes all existing sections/questions and re-inserts from the payload.
+        """
+        try:
+            import uuid
+            cursor = self.conn.cursor()
+
+            # Update template metadata
+            if template_type:
+                cursor.execute(
+                    "UPDATE question_template SET template_name = %s, template_owner = %s, template_type = %s, updated_at = NOW() WHERE template_id = %s;",
+                    (template_name, template_owner, template_type, template_id)
+                )
+            else:
+                cursor.execute(
+                    "UPDATE question_template SET template_name = %s, template_owner = %s, updated_at = NOW() WHERE template_id = %s;",
+                    (template_name, template_owner, template_id)
+                )
+            if cursor.rowcount == 0:
+                cursor.close()
+                return {"success": False, "message": "Template not found"}
+
+            # Delete old sections (cascades to questions)
+            cursor.execute(
+                "DELETE FROM question_section WHERE template_id = %s;",
+                (template_id,)
+            )
+
+            # Insert new sections and questions (skip sections with no questions)
+            for sort_order, (section_name, questions) in enumerate(sections.items()):
+                if not questions:
+                    continue
+                section_id = str(uuid.uuid4())
+                cursor.execute(
+                    "INSERT INTO question_section (section_id, template_id, name, sort_order, created_at) VALUES (%s, %s, %s, %s, NOW());",
+                    (section_id, template_id, section_name, sort_order)
+                )
+                for q_order, content in enumerate(questions):
+                    question_id = str(uuid.uuid4())
+                    cursor.execute(
+                        "INSERT INTO question (question_id, section_id, content, sort_order, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW());",
+                        (question_id, section_id, content, q_order)
+                    )
+
+            self.conn.commit()
+            cursor.close()
+            return {"success": True, "message": "Template saved successfully", "template_id": template_id}
+        except Error as e:
+            self.conn.rollback()
+            return {"success": False, "message": f"Error saving template: {e}"}

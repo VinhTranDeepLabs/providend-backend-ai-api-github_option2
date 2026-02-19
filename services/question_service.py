@@ -186,18 +186,18 @@ class QuestionService:
                 raise ValueError(f"No transcript found for meeting_id: {meeting_id}. Please run aggregation first.")
         
         # Get categorized questions for this template
-        if template_name not in CATEGORIZED_QUESTIONS:
-            raise ValueError(f"Template '{template_name}' not found in CATEGORIZED_QUESTIONS")
-        
-        categorized_questions = CATEGORIZED_QUESTIONS[template_name]
-        
+        if template_name not in self.categorized_questions:
+            raise ValueError(f"Template '{template_name}' not found in categorized_questions")
+
+        categorized_questions = self.categorized_questions[template_name]
+
         # Build the prompt with all questions organized by section
         sections_str = ""
         for section, questions in categorized_questions.items():
             sections_str += f"\n{section}:\n"
             for i, q in enumerate(questions, 1):
                 sections_str += f"  {i}. {q}\n"
-        
+
         system_prompt = """You are an expert at analyzing conversation transcripts.
         Your task is to determine which questions from each section were answered or discussed in the transcript.
 
@@ -334,10 +334,10 @@ class QuestionService:
             raise ValueError(f"Failed to parse questions JSON: {str(e)}")
         
         # Get categorized questions for this meeting type (as template)
-        if meeting_type not in CATEGORIZED_QUESTIONS:
-            raise ValueError(f"Meeting type '{meeting_type}' not found in CATEGORIZED_QUESTIONS")
-        
-        categorized_questions = CATEGORIZED_QUESTIONS[meeting_type]
+        if meeting_type not in self.categorized_questions:
+            raise ValueError(f"Meeting type '{meeting_type}' not found in categorized_questions")
+
+        categorized_questions = self.categorized_questions[meeting_type]
         questions_list = questions_obj.get("questions", [])
         
         # Create a mapping of question text to answer status

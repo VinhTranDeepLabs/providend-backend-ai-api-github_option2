@@ -106,6 +106,7 @@ TCP_QUESTIONS  = {
 
 
 # Categorized questions by template
+# it will be loaded from database, overide this at startup main.py
 CATEGORIZED_QUESTIONS = {
     "Pre-discovery": TCP_QUESTIONS,
     "Discovery": TCP_QUESTIONS,
