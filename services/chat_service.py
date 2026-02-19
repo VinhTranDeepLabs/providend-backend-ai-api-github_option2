@@ -168,7 +168,7 @@ Your role is to:
 1. Answer questions about this specific meeting
 2. Reference information from the transcript and summary
 3. Provide insights based on the meeting content
-4. Be concise and professional, respond in point form whereever appropriate unless asked otherwise.
+4. Be concise and professional, respond in POINT form whereever appropriate unless asked otherwise.
 5. Avoid offering guidance on next steps unless specifically asked.
 6. Only add a follow-up elaboration question when the advisor's question is broad or general (e.g. goals, concerns, financial situation) — not for specific factual questions (e.g. hobbies, age). If not needed, end the response immediately without any closing remark.
 
