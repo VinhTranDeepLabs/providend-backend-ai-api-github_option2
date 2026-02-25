@@ -1,9 +1,14 @@
 from fastapi import APIRouter, Query, HTTPException, status, Depends, Request
 from fastapi.responses import RedirectResponse
 from typing import Optional
-from services.auth_service import auth_service
-from models.schemas import SSORequest, SSOResponse
+from models.schemas import SSORequest, SSOResponse, RefreshTokenRequest, RefreshTokenResponse
 from services.advisor_service import AdvisorService
+from utils.token import (
+    validate_microsoft_token,
+    validate_app_token,
+    create_access_token,
+    create_refresh_token,
+)
 import logging
 import os
 import hashlib
@@ -36,44 +41,51 @@ async def sso_login(
     - Returns user information
     """
     try:
-        # Import and validate token
-        from utils.token import validate_token
-        
-        # Validate token with JWKS (raises HTTPException if invalid)
-        token_payload = validate_token(request.access_token)
-        
-        # Extract user info from token
+        # Validate incoming Microsoft token
+        token_payload = validate_microsoft_token(request.access_token)
+
+        # Extract user info from Microsoft token
         user_oid = token_payload.get("oid") or token_payload.get("sub")
         user_email = token_payload.get("email") or token_payload.get("preferred_username") or token_payload.get("upn")
         user_name = token_payload.get("name")
-        
+
         if not user_email or not user_oid:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Token missing required user information (email or oid)"
             )
-        
+
         # Get or create user in database
         advisor_service = AdvisorService()
         user = advisor_service.get_or_create_user_from_token(
             oid=user_oid,
             email=user_email,
-            name=user_name or user_email.split("@")[0],  # Fallback to email prefix
+            name=user_name or user_email.split("@")[0],
             conn=conn
         )
-        
+
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to retrieve or create user"
             )
-        
+
+        # Issue our own tokens using the internal advisor_id
+        token_data = {
+            "user_id": user["advisor_id"],
+            "email": user_email,
+            "name": user_name,
+        }
+        access_token = create_access_token(token_data)
+        refresh_token = create_refresh_token({"user_id": user["advisor_id"]})
+
         logger.info(f"SSO successful for user: {user_email}")
-        
+
         return SSOResponse(
             valid=True,
             user=user,
-            access_token=request.access_token
+            access_token=access_token,
+            refresh_token=refresh_token,
         )
         
     except HTTPException:
@@ -96,17 +108,14 @@ async def verify_token(
     Returns user info if token is valid, 401 if not
     """
     try:
-        # Validate token
-        decoded = auth_service.validate_token(access_token)
-        user = auth_service.extract_user_from_token(decoded)
-        
+        decoded = validate_app_token(access_token, token_type="access")
+
         return {
             "valid": True,
             "user": {
-                "advisor_id": user["id"],
-                "email": user["email"],
-                "name": user["name"],
-                "roles": user["roles"]
+                "advisor_id": decoded.get("user_id"),
+                "email": decoded.get("email"),
+                "name": decoded.get("name"),
             }
         }
     except HTTPException:
@@ -115,6 +124,43 @@ async def verify_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token"
+        )
+
+
+@router.post("/refresh", response_model=RefreshTokenResponse)
+async def refresh_token(body: RefreshTokenRequest):
+    """
+    Refresh access token using a valid refresh token.
+
+    Returns a new access token (30 minutes).
+    The refresh token itself remains valid until it expires (1 day).
+    """
+    try:
+        decoded = validate_app_token(body.refresh_token, token_type="refresh")
+
+        # Issue a new access token with the same identity claims
+        token_data = {
+            "user_id": decoded.get("user_id"),
+            "email": decoded.get("email"),
+            "name": decoded.get("name"),
+        }
+        new_access_token = create_access_token(token_data)
+
+        return RefreshTokenResponse(
+            success=True,
+            message="Token refreshed successfully",
+            data={
+                "access_token": new_access_token,
+                "expires_in": 1800,  # 30 minutes in seconds
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token refresh error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred during token refresh"
         )
 
 
@@ -127,10 +173,9 @@ async def dev_login(
     """⚠️ DEV ONLY - Bypass SSO for testing"""
     if os.getenv("ENVIRONMENT") != "development":
         raise HTTPException(403, "Dev login disabled")
-    
-    # Generate fake OID
+
     dev_oid = f"dev-{hashlib.sha256(email.encode()).hexdigest()[:16]}"
-    
+
     advisor_service = AdvisorService()
     user = advisor_service.get_or_create_user_from_token(
         oid=dev_oid,
@@ -138,11 +183,16 @@ async def dev_login(
         name=name,
         conn=conn
     )
-    
+
+    token_data = {"user_id": user["advisor_id"], "email": email, "name": name}
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token({"user_id": user["advisor_id"]})
+
     return {
         "valid": True,
         "user": user,
-        "access_token": os.getenv("DEV_LOGIN_TOKEN")
+        "access_token": access_token,
+        "refresh_token": refresh_token,
     }
 
 

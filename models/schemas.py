@@ -241,7 +241,20 @@ class SSOResponse(BaseModel):
     """Response model for SSO endpoint"""
     valid: bool = Field(..., description="Whether the token is valid")
     user: Dict[str, Any] = Field(..., description="User information from database")
-    access_token: str = Field(..., description="The validated access token")
+    access_token: str = Field(..., description="Short-lived access token (30 minutes)")
+    refresh_token: str = Field(..., description="Long-lived refresh token (1 day)")
+
+
+class RefreshTokenRequest(BaseModel):
+    """Request model for token refresh"""
+    refresh_token: str = Field(..., description="Valid refresh token")
+
+
+class RefreshTokenResponse(BaseModel):
+    """Response model for token refresh"""
+    success: bool = True
+    message: str = "Token refreshed successfully"
+    data: Dict[str, Any] = Field(..., description="New access token and expiry info")
 
 # ==================== ENUMS ====================
 
