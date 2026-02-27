@@ -488,7 +488,7 @@ class DatabaseUtils:
                 SELECT 
                     m.meeting_id,
                     m.client_id,
-                    c.name as client_name,
+                    COALESCE(c.name, m.meeting_name) as client_name,
                     m.advisor_id,
                     m.meeting_name,
                     m.meeting_type,
