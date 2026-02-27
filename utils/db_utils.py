@@ -476,8 +476,10 @@ class DatabaseUtils:
             
             # Determine ORDER BY clause
             if sort_by == "client_name":
-                # Handle NULL client_id (quick meetings) - put them last
-                order_by = f"c.name {sort_order.upper()} NULLS LAST"
+                # Handle NULL client_id (quick meetings)
+                order_by = f"c.name {sort_order.upper()}"
+            if sort_by == "meeting_type":
+                order_by = f"m.meeting_type {sort_order.upper()}"
             else:  # sort_by == "date"
                 order_by = f"m.created_datetime {sort_order.upper()}"
             

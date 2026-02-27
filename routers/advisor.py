@@ -200,7 +200,7 @@ async def get_advisor_meetings(
     meeting_type: Optional[str] = Query(None, description="Filter by meeting types (comma-separated for multiple)"),
     date_from: Optional[str] = Query(None, description="Start date filter (ISO format: YYYY-MM-DD)", regex=r"^\d{4}-\d{2}-\d{2}$"),
     date_to: Optional[str] = Query(None, description="End date filter (ISO format: YYYY-MM-DD)", regex=r"^\d{4}-\d{2}-\d{2}$"),
-    sort_by: str = Query("date", description="Sort by field", regex="^(date|client_name)$"),
+    sort_by: str = Query("date", description="Sort by field", regex="^(date|client_name|meeting_type)$"),
     sort_order: str = Query("desc", description="Sort order", regex="^(asc|desc)$"),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     per_page: int = Query(10, ge=1, le=100, description="Records per page"),
