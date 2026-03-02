@@ -8,9 +8,9 @@ class QuestionTemplateService:
     def __init__(self, conn):
         self.db = DatabaseUtils(conn)
 
-    def get_all_templates(self, page: int = 1, rows_per_page: int = 10, template_name: str = None) -> Dict:
-        """List all question templates with pagination and optional name filter"""
-        return self.db.list_question_templates(page=page, rows_per_page=rows_per_page, template_name=template_name)
+    def get_all_templates(self, page: int = 1, rows_per_page: int = 10, template_name: str = None, template_owner: str = None, template_type: str = None, date_from=None, date_to=None) -> Dict:
+        """List all question templates with pagination and optional filters"""
+        return self.db.list_question_templates(page=page, rows_per_page=rows_per_page, template_name=template_name, template_owner=template_owner, template_type=template_type, date_from=date_from, date_to=date_to)
 
     def get_detailed_template(self, template_id: str) -> Optional[Dict]:
         """Get a complete template with all sections and questions"""
