@@ -2392,17 +2392,30 @@ class DatabaseUtils:
 
     # ==================== QUESTION TEMPLATE OPERATIONS ====================
 
-    def list_question_templates(self, page: int = None, rows_per_page: int = None, template_name: str = None) -> Dict:
-        """List question templates with optional pagination and name filter.
+    def list_question_templates(self, page: int = None, rows_per_page: int = None, template_name: str = None, template_owner: str = None, template_type: str = None, date_from=None, date_to=None) -> Dict:
+        """List question templates with optional pagination and filters.
         When page/rows_per_page are None, returns all templates."""
         try:
             cursor = self.conn.cursor()
             params = []
 
-            where_clause = ""
+            conditions = []
             if template_name:
-                where_clause = "WHERE LOWER(t.template_name) LIKE LOWER(%s)"
+                conditions.append("LOWER(t.template_name) LIKE LOWER(%s)")
                 params.append(f"%{template_name}%")
+            if template_owner:
+                conditions.append("LOWER(t.template_owner) LIKE LOWER(%s)")
+                params.append(f"%{template_owner}%")
+            if template_type:
+                conditions.append("t.template_type = %s")
+                params.append(template_type)
+            if date_from:
+                conditions.append("t.updated_at >= %s")
+                params.append(date_from)
+            if date_to:
+                conditions.append("t.updated_at <= %s")
+                params.append(date_to)
+            where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
             # Count total matching templates
             count_query = f"""

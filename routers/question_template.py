@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Request, Depends, Query
 from pydantic import BaseModel, Field, ConfigDict
 from services.question_template_service import QuestionTemplateService
 from typing import Optional, Dict, List
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 router = APIRouter()
 
@@ -162,6 +164,16 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+def _to_utc(d: date, end_of_day: bool, tz: ZoneInfo) -> datetime:
+    """Convert a date to a UTC-aware datetime in the given timezone.
+    start_of_day → 00:00:00, end_of_day → 23:59:59.999999."""
+    if end_of_day:
+        local_dt = datetime(d.year, d.month, d.day, 23, 59, 59, 999999, tzinfo=tz)
+    else:
+        local_dt = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz)
+    return local_dt.astimezone(timezone.utc)
+
+
 # ==================== TEMPLATE ENDPOINTS ====================
 
 @router.get("/all", response_model=TemplateListResponse)
@@ -169,15 +181,40 @@ async def get_all_templates(
     page: int = Query(1, ge=1, description="Page number (1-based). Determines which page of results to return."),
     rows_per_page: int = Query(10, ge=1, le=100, description="Number of rows per page. Controls how many templates are returned in a single response."),
     template_name: Optional[str] = Query(None, description="Filter by template name using case-insensitive partial match. Example: 'client' matches 'Total Client Profile'."),
+    template_owner: Optional[str] = Query(None, description="Filter by template owner using case-insensitive partial match. Example: 'advisor-001'."),
+    template_type: Optional[str] = Query(None, description="Filter by template type. Accepted values: 'with-section' or 'without-section'."),
+    date_from: Optional[date] = Query(None, description="Filter templates last modified on or after this date. Format: YYYY-MM-DD."),
+    date_to: Optional[date] = Query(None, description="Filter templates last modified on or before this date. Format: YYYY-MM-DD."),
+    client_timezone: Optional[str] = Query("UTC", description="IANA timezone of the caller used to interpret date_from/date_to. Example: 'Asia/Singapore', 'America/New_York'. Defaults to UTC."),
     conn=Depends(get_conn),
 ):
-    """List all question templates with pagination and optional name filter.
+    """List all question templates with pagination and optional filters.
 
     Returns a paginated list of templates along with pagination metadata
     (item_total, item_start, item_end) to support UI pagination controls
-    like 'item_start - item_end of item_total'."""
+    like 'item_start - item_end of item_total'.
+
+    Date filters are interpreted in client_timezone then converted to UTC before
+    querying the database (which stores timestamps in UTC)."""
+    try:
+        tz = ZoneInfo(client_timezone)
+    except ZoneInfoNotFoundError:
+        from fastapi import HTTPException as _HTTPException
+        raise _HTTPException(status_code=422, detail=f"Unknown timezone: '{client_timezone}'. Use an IANA timezone name, e.g. 'Asia/Singapore'.")
+
+    dt_from = _to_utc(date_from, end_of_day=False, tz=tz) if date_from else None
+    dt_to   = _to_utc(date_to,   end_of_day=True,  tz=tz) if date_to   else None
+
     service = QuestionTemplateService(conn)
-    result = service.get_all_templates(page=page, rows_per_page=rows_per_page, template_name=template_name)
+    result = service.get_all_templates(
+        page=page,
+        rows_per_page=rows_per_page,
+        template_name=template_name,
+        template_owner=template_owner,
+        template_type=template_type,
+        date_from=dt_from,
+        date_to=dt_to,
+    )
     return result
 
 
