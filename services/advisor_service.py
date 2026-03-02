@@ -49,27 +49,10 @@ class AdvisorService:
         db = DatabaseUtils(conn)
         return db.list_advisors()
 
-    def get_advisor_clients(self, advisor_id: str, conn=None) -> Dict[str, Any]:
-        """Get all clients for an advisor (via FK relationship)"""
+    def get_advisor_clients(self, advisor_id: str, page: int = 1, rows_per_page: int = 10, client_name: str = None, conn=None) -> Dict[str, Any]:
+        """Get clients for an advisor with pagination and optional name filter"""
         db = DatabaseUtils(conn)
-        clients = db.list_clients(advisor_id=advisor_id)
-        
-        # Format response
-        clients_list = []
-        for client in clients:
-            clients_list.append({
-                "client_id": client["client_id"],
-                "name": client["name"],
-                "status": client.get("status"),
-                "current_recommendation": client.get("current_recommendation"),
-                "date_created": client.get("date_created")
-            })
-        
-        return {
-            "advisor_id": advisor_id,
-            "total_clients": len(clients_list),
-            "clients": clients_list
-        }
+        return db.list_clients_paginated(advisor_id=advisor_id, page=page, rows_per_page=rows_per_page, client_name=client_name)
 
     def get_advisor_meetings(
         self, 

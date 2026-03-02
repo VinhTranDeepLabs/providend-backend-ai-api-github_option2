@@ -239,6 +239,82 @@ class DatabaseUtils:
             print(f"Error listing clients: {e}")
             return []
     
+    def list_clients_paginated(self, advisor_id: str, page: int = 1, rows_per_page: int = 10, client_name: str = None) -> Dict:
+        """List clients for an advisor with pagination and optional name filter."""
+        try:
+            cursor = self.conn.cursor()
+
+            where_clauses = ["c.advisor_id = %s"]
+            params = [advisor_id]
+
+            if client_name:
+                where_clauses.append("LOWER(c.name) LIKE LOWER(%s)")
+                params.append(f"%{client_name}%")
+
+            where_clause = " AND ".join(where_clauses)
+
+            # Count total matching clients
+            count_query = f"SELECT COUNT(*) FROM clients c WHERE {where_clause};"
+            cursor.execute(count_query, params)
+            total = cursor.fetchone()[0]
+
+            # Clamp page to valid range
+            last_page = math.ceil(total / rows_per_page) if total > 0 and rows_per_page > 0 else 1
+            if page > last_page:
+                page = last_page
+
+            offset = (page - 1) * rows_per_page
+            data_params = list(params) + [rows_per_page, offset]
+
+            data_query = f"""
+                SELECT c.client_id, c.name, c.advisor_id, c.current_recommendation, c.date_created, c.status,
+                       MAX(m.created_datetime) AS last_meeting_datetime
+                FROM clients c
+                LEFT JOIN meetings m ON m.client_id = c.client_id
+                WHERE {where_clause}
+                GROUP BY c.client_id, c.name, c.advisor_id, c.current_recommendation, c.date_created, c.status
+                ORDER BY c.name
+                LIMIT %s OFFSET %s;
+            """
+            cursor.execute(data_query, data_params)
+            results = cursor.fetchall()
+            cursor.close()
+
+            clients = []
+            for row in results:
+                clients.append({
+                    "client_id": row[0],
+                    "name": row[1],
+                    "current_recommendation": row[3],
+                    "date_created": row[4],
+                    "status": row[5],
+                    "last_meeting_datetime": row[6]
+                })
+
+            start = (page - 1) * rows_per_page + 1 if total > 0 else 0
+            end = min(page * rows_per_page, total)
+
+            return {
+                "clients": clients,
+                "item_total": total,
+                "page": page,
+                "rows_per_page": rows_per_page,
+                "item_start": start,
+                "item_end": end,
+                "last_page": last_page
+            }
+        except Error as e:
+            print(f"Error listing clients paginated: {e}")
+            return {
+                "clients": [],
+                "item_total": 0,
+                "page": page,
+                "rows_per_page": rows_per_page,
+                "item_start": 0,
+                "item_end": 0,
+                "last_page": 0
+            }
+
     # ==================== MEETING OPERATIONS ====================
     
     def create_meeting(self, meeting_id: str, client_id: str, advisor_id: str, 
