@@ -173,23 +173,29 @@ async def list_all_advisors(conn=Depends(get_conn)):
 
 
 @router.get("/{advisor_id}/clients")
-async def get_advisor_clients(advisor_id: str, conn=Depends(get_conn)):
-    """
-    Get all clients for an advisor.
-    
-    Args:
-        advisor_id: The advisor ID
-    
-    Returns:
-        List of clients assigned to this advisor
-    """
-    result = advisor_service.get_advisor_clients(advisor_id, conn=conn)
-    
+async def get_advisor_clients(
+    advisor_id: str,
+    page: int = Query(1, ge=1, description="Page number (1-based). Determines which page of results to return."),
+    rows_per_page: int = Query(10, ge=1, le=100, description="Number of rows per page. Controls how many clients are returned in a single response."),
+    client_name: Optional[str] = Query(None, description="Filter by client name using case-insensitive partial match. Example: 'john' matches 'John Smith'."),
+    conn=Depends(get_conn)
+):
+    """Get paginated clients for an advisor with optional name filter.
+
+    Returns a paginated list of clients along with pagination metadata
+    (item_total, item_start, item_end) to support UI pagination controls."""
+    result = advisor_service.get_advisor_clients(
+        advisor_id,
+        page=page,
+        rows_per_page=rows_per_page,
+        client_name=client_name,
+        conn=conn
+    )
+
     return {
         "success": True,
         "advisor_id": advisor_id,
-        "total_clients": result.get("total_clients", 0),
-        "clients": result.get("clients", [])
+        **result
     }
 
 
