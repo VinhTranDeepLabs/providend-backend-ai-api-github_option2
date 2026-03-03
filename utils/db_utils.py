@@ -239,23 +239,43 @@ class DatabaseUtils:
             print(f"Error listing clients: {e}")
             return []
     
-    def list_clients_paginated(self, advisor_id: str, page: int = 1, rows_per_page: int = 10, client_name: str = None) -> Dict:
-        """List clients for an advisor with pagination and optional name filter."""
+    def list_clients_paginated(self, advisor_id: str, page: int = 1, rows_per_page: int = 10, client_name: str = None, date_from=None, date_to=None) -> Dict:
+        """List clients for an advisor with pagination and optional name/date filters."""
         try:
             cursor = self.conn.cursor()
 
             where_clauses = ["c.advisor_id = %s"]
             params = [advisor_id]
+            having_clauses = []
+            having_params = []
 
             if client_name:
                 where_clauses.append("LOWER(c.name) LIKE LOWER(%s)")
                 params.append(f"%{client_name}%")
 
-            where_clause = " AND ".join(where_clauses)
+            if date_from:
+                having_clauses.append("MAX(m.created_datetime) >= %s")
+                having_params.append(date_from)
 
-            # Count total matching clients
-            count_query = f"SELECT COUNT(*) FROM clients c WHERE {where_clause};"
-            cursor.execute(count_query, params)
+            if date_to:
+                having_clauses.append("MAX(m.created_datetime) <= %s")
+                having_params.append(date_to)
+
+            where_clause = " AND ".join(where_clauses)
+            having_clause = ("HAVING " + " AND ".join(having_clauses)) if having_clauses else ""
+
+            # Count total matching clients (subquery needed when HAVING is present)
+            count_query = f"""
+                SELECT COUNT(*) FROM (
+                    SELECT c.client_id
+                    FROM clients c
+                    LEFT JOIN meetings m ON m.client_id = c.client_id
+                    WHERE {where_clause}
+                    GROUP BY c.client_id
+                    {having_clause}
+                ) AS subq;
+            """
+            cursor.execute(count_query, params + having_params)
             total = cursor.fetchone()[0]
 
             # Clamp page to valid range
@@ -264,7 +284,7 @@ class DatabaseUtils:
                 page = last_page
 
             offset = (page - 1) * rows_per_page
-            data_params = list(params) + [rows_per_page, offset]
+            data_params = list(params) + having_params + [rows_per_page, offset]
 
             data_query = f"""
                 SELECT c.client_id, c.name, c.advisor_id, c.current_recommendation, c.date_created, c.status,
@@ -273,6 +293,7 @@ class DatabaseUtils:
                 LEFT JOIN meetings m ON m.client_id = c.client_id
                 WHERE {where_clause}
                 GROUP BY c.client_id, c.name, c.advisor_id, c.current_recommendation, c.date_created, c.status
+                {having_clause}
                 ORDER BY c.name
                 LIMIT %s OFFSET %s;
             """
