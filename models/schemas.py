@@ -446,3 +446,18 @@ class ApplySpeakerMappingResponse(BaseModel):
     speakers_replaced: int
     version_created: bool
     updated_transcript_preview: Optional[str] = None
+
+
+class TranscriptSegmentItem(BaseModel):
+    speaker: str = Field(..., description="Speaker name/label")
+    text: str = Field(..., description="Transcript text for this segment")
+
+
+class TranslateTranscriptRequest(BaseModel):
+    transcript: List[TranscriptSegmentItem] = Field(..., description="List of transcript segments to translate")
+
+
+class TranslateTranscriptResponse(BaseModel):
+    meeting_id: str
+    transcript: List[TranscriptSegmentItem]
+    stored: bool = True
