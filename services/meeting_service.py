@@ -510,6 +510,19 @@ class MeetingService:
         return result
         
 
+    def store_transcript(self, meeting_id: str, transcript: str, created_by: str = "SYSTEM", conn=None) -> Dict[str, Any]:
+        """Store transcript and create a version entry."""
+        db = DatabaseUtils(conn)
+        result = db.update_meeting_detail(meeting_id=meeting_id, transcript=transcript)
+        if result.get("success"):
+            db.create_content_version(
+                meeting_id=meeting_id,
+                content_type='transcript',
+                content=transcript,
+                created_by=created_by
+            )
+        return result
+
     def append_to_transcript(self, meeting_id: str, new_content: str, conn=None) -> Dict[str, Any]:
         """Append content to existing transcript"""
         details = self.get_meeting_detail(meeting_id, conn)

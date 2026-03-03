@@ -2,8 +2,14 @@ from fastapi import APIRouter, Request, Depends, status, HTTPException, Query
 from typing import Optional
 from datetime import datetime
 from uuid import uuid4
+import json
+import requests as http_requests
 from services.meeting_service import MeetingService
-from models.schemas import GetQuestionTrackerResponse, TranscriptSegmentRequest, UpdateSummaryRequest
+from models.schemas import (
+    GetQuestionTrackerResponse, TranscriptSegmentRequest, UpdateSummaryRequest,
+    TranslateTranscriptRequest, TranslateTranscriptResponse,
+)
+from config.settings import AZURE_TRANSLATOR_KEY, AZURE_TRANSLATOR_ENDPOINT, AZURE_TRANSLATOR_REGION
 
 router = APIRouter()
 meeting_service = MeetingService()
@@ -1448,6 +1454,62 @@ async def rollback_summary_version(
         "meeting_id": meeting_id,
         "restored_version": version_number
     }
+
+
+# ==================== TRANSLATION ====================
+
+@router.post("/{meeting_id}/translate")
+async def translate_transcript(
+    meeting_id: str,
+    request: TranslateTranscriptRequest,
+    conn=Depends(get_conn)
+):
+    """
+    Translate transcript segments to English using Azure Translator and store the result.
+
+    Args:
+        meeting_id: The meeting ID
+        request.transcript: List of {speaker, text} segments to translate
+
+    Returns:
+        Translated segments and confirmation that the transcript was stored
+    """
+    try:
+        response = http_requests.post(
+            f"{AZURE_TRANSLATOR_ENDPOINT}/translate",
+            params={"api-version": "3.0", "to": "en"},
+            headers={
+                "Ocp-Apim-Subscription-Key": AZURE_TRANSLATOR_KEY,
+                "Ocp-Apim-Subscription-Region": AZURE_TRANSLATOR_REGION,
+                "Content-Type": "application/json",
+            },
+            json=[{"text": segment.text} for segment in request.transcript],
+        )
+        response.raise_for_status()
+        results = response.json()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Translation failed: {str(e)}"
+        )
+
+    translated_transcript = [
+        {"speaker": segment.speaker, "text": result["translations"][0]["text"]}
+        for segment, result in zip(request.transcript, results)
+    ]
+
+    meeting_service.store_transcript(
+        meeting_id=meeting_id,
+        transcript=json.dumps(translated_transcript),
+        created_by="TRANSLATOR",
+        conn=conn
+    )
+
+    return TranslateTranscriptResponse(
+        meeting_id=meeting_id,
+        transcript=translated_transcript,
+        stored=True,
+    )
 
 
 # ==================== UNIFIED TIMELINE ENDPOINT ====================
