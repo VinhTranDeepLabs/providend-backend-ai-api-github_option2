@@ -1,9 +1,21 @@
 from fastapi import APIRouter, Request, Depends, Response, status, HTTPException, Query
 from services.advisor_service import AdvisorService
 from typing import Optional, List
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 router = APIRouter()
 advisor_service = AdvisorService()
+
+
+def _to_utc(d: date, end_of_day: bool, tz: ZoneInfo) -> datetime:
+    """Convert a date to a UTC-aware datetime in the given timezone.
+    start_of_day → 00:00:00, end_of_day → 23:59:59.999999."""
+    if end_of_day:
+        local_dt = datetime(d.year, d.month, d.day, 23, 59, 59, 999999, tzinfo=tz)
+    else:
+        local_dt = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=tz)
+    return local_dt.astimezone(timezone.utc)
 
 
 def get_conn(request: Request):
@@ -178,17 +190,33 @@ async def get_advisor_clients(
     page: int = Query(1, ge=1, description="Page number (1-based). Determines which page of results to return."),
     rows_per_page: int = Query(10, ge=1, le=100, description="Number of rows per page. Controls how many clients are returned in a single response."),
     client_name: Optional[str] = Query(None, description="Filter by client name using case-insensitive partial match. Example: 'john' matches 'John Smith'."),
+    date_from: Optional[date] = Query(None, description="Filter clients whose last meeting is on or after this date. Format: YYYY-MM-DD."),
+    date_to: Optional[date] = Query(None, description="Filter clients whose last meeting is on or before this date. Format: YYYY-MM-DD."),
+    client_timezone: Optional[str] = Query("UTC", description="IANA timezone of the caller used to interpret date_from/date_to. Example: 'Asia/Singapore', 'America/New_York'. Defaults to UTC."),
     conn=Depends(get_conn)
 ):
-    """Get paginated clients for an advisor with optional name filter.
+    """Get paginated clients for an advisor with optional name and date filters.
 
     Returns a paginated list of clients along with pagination metadata
-    (item_total, item_start, item_end) to support UI pagination controls."""
+    (item_total, item_start, item_end) to support UI pagination controls.
+
+    Date filters are interpreted in client_timezone then converted to UTC before
+    querying the database (which stores timestamps in UTC)."""
+    try:
+        tz = ZoneInfo(client_timezone)
+    except ZoneInfoNotFoundError:
+        raise HTTPException(status_code=422, detail=f"Unknown timezone: '{client_timezone}'. Use an IANA timezone name, e.g. 'Asia/Singapore'.")
+
+    dt_from = _to_utc(date_from, end_of_day=False, tz=tz) if date_from else None
+    dt_to   = _to_utc(date_to,   end_of_day=True,  tz=tz) if date_to   else None
+
     result = advisor_service.get_advisor_clients(
         advisor_id,
         page=page,
         rows_per_page=rows_per_page,
         client_name=client_name,
+        date_from=dt_from,
+        date_to=dt_to,
         conn=conn
     )
 

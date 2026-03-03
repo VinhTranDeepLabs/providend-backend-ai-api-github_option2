@@ -49,10 +49,10 @@ class AdvisorService:
         db = DatabaseUtils(conn)
         return db.list_advisors()
 
-    def get_advisor_clients(self, advisor_id: str, page: int = 1, rows_per_page: int = 10, client_name: str = None, conn=None) -> Dict[str, Any]:
-        """Get clients for an advisor with pagination and optional name filter"""
+    def get_advisor_clients(self, advisor_id: str, page: int = 1, rows_per_page: int = 10, client_name: str = None, date_from=None, date_to=None, conn=None) -> Dict[str, Any]:
+        """Get clients for an advisor with pagination and optional name/date filters"""
         db = DatabaseUtils(conn)
-        return db.list_clients_paginated(advisor_id=advisor_id, page=page, rows_per_page=rows_per_page, client_name=client_name)
+        return db.list_clients_paginated(advisor_id=advisor_id, page=page, rows_per_page=rows_per_page, client_name=client_name, date_from=date_from, date_to=date_to)
 
     def get_advisor_meetings(
         self, 
