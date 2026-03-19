@@ -129,6 +129,7 @@ class ChatService:
         transcript = meeting_details.get("transcript", "")
         summary = meeting_details.get("summary", "")
         meeting_name = meeting.get("meeting_name", "Meeting")
+        client_preferences = meeting_details.get("client_preferences")
         
         # 3. Get chat history for context
         chat_messages = db.get_chat_messages(chat_id)
@@ -149,12 +150,23 @@ class ChatService:
             chart_context = f"\n\n[Chart Data Attached]\n{json.dumps(chart_data, ensure_ascii=False)}"
             enhanced_message += chart_context
         
+        # Handle empty preferences for the prompt
+        preferences_text = client_preferences if client_preferences else "Not extracted or available for this meeting."
+        
         # Build system prompt with meeting context
         system_prompt = f"""You are an AI assistant helping a financial advisor analyze meeting data.
+
+CONTEXT PRIORITY:
+1. Client Preferences (Structured Facts) -> USE THIS FIRST for personal questions
+2. Meeting Summary -> Use for financial/overview context
+3. Transcript -> Use as fallback if the answer is not in preferences/summary
 
 Meeting Context:
 - Meeting: {meeting_name}
 - Meeting ID: {meeting_id}
+
+Client Personal Preferences (JSON):
+{preferences_text}
 
 Meeting Transcript:
 {transcript if transcript else "No transcript available"}
@@ -168,9 +180,8 @@ Your role is to:
 1. Answer questions about this specific meeting
 2. Reference information from the transcript and summary
 3. Provide insights based on the meeting content
-4. Be concise and professional, respond in POINT form whereever appropriate unless asked otherwise.
-5. Avoid offering guidance on next steps unless specifically asked.
-6. Only add a follow-up elaboration question when the advisor's question is broad or general (e.g. goals, concerns, financial situation) — not for specific factual questions (e.g. hobbies, age). If not needed, end the response immediately without any closing remark.
+4. Be concise and professional, respond in point form whereever appropriate unless asked otherwise.
+5. At the end of your response, please ask if the advisor needs any further elaboration on the points discussed whenever applicable and avoid offering guidance on next steps unless specifically asked.
 
 If chart data is provided, analyze it in the context of the meeting discussion."""
 

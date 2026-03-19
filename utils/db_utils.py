@@ -1,4 +1,3 @@
-import math
 import psycopg2
 from psycopg2 import Error
 from typing import List, Dict, Optional, Any
@@ -50,6 +49,7 @@ class DatabaseUtils:
                 }
             return None
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching advisor: {e}")
             return None
     
@@ -116,6 +116,7 @@ class DatabaseUtils:
                 })
             return advisors
         except Error as e:
+            self.conn.rollback()
             print(f"Error listing advisors: {e}")
             return []
     
@@ -160,6 +161,7 @@ class DatabaseUtils:
                 }
             return None
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching client: {e}")
             return None
     
@@ -236,106 +238,10 @@ class DatabaseUtils:
                 })
             return clients
         except Error as e:
+            self.conn.rollback()
             print(f"Error listing clients: {e}")
             return []
     
-    def list_clients_paginated(self, advisor_id: str, page: int = 1, rows_per_page: int = 10, client_name: str = None, date_from=None, date_to=None) -> Dict:
-        """List clients for an advisor with pagination and optional name/date filters."""
-        try:
-            cursor = self.conn.cursor()
-
-            where_clauses = ["c.advisor_id = %s"]
-            params = [advisor_id]
-            having_clauses = []
-            having_params = []
-
-            if client_name:
-                where_clauses.append("LOWER(c.name) LIKE LOWER(%s)")
-                params.append(f"%{client_name}%")
-
-            if date_from:
-                having_clauses.append("MAX(m.created_datetime) >= %s")
-                having_params.append(date_from)
-
-            if date_to:
-                having_clauses.append("MAX(m.created_datetime) <= %s")
-                having_params.append(date_to)
-
-            where_clause = " AND ".join(where_clauses)
-            having_clause = ("HAVING " + " AND ".join(having_clauses)) if having_clauses else ""
-
-            # Count total matching clients (subquery needed when HAVING is present)
-            count_query = f"""
-                SELECT COUNT(*) FROM (
-                    SELECT c.client_id
-                    FROM clients c
-                    LEFT JOIN meetings m ON m.client_id = c.client_id
-                    WHERE {where_clause}
-                    GROUP BY c.client_id
-                    {having_clause}
-                ) AS subq;
-            """
-            cursor.execute(count_query, params + having_params)
-            total = cursor.fetchone()[0]
-
-            # Clamp page to valid range
-            last_page = math.ceil(total / rows_per_page) if total > 0 and rows_per_page > 0 else 1
-            if page > last_page:
-                page = last_page
-
-            offset = (page - 1) * rows_per_page
-            data_params = list(params) + having_params + [rows_per_page, offset]
-
-            data_query = f"""
-                SELECT c.client_id, c.name, c.advisor_id, c.current_recommendation, c.date_created, c.status,
-                       MAX(m.created_datetime) AS last_meeting_datetime
-                FROM clients c
-                LEFT JOIN meetings m ON m.client_id = c.client_id
-                WHERE {where_clause}
-                GROUP BY c.client_id, c.name, c.advisor_id, c.current_recommendation, c.date_created, c.status
-                {having_clause}
-                ORDER BY c.name
-                LIMIT %s OFFSET %s;
-            """
-            cursor.execute(data_query, data_params)
-            results = cursor.fetchall()
-            cursor.close()
-
-            clients = []
-            for row in results:
-                clients.append({
-                    "client_id": row[0],
-                    "name": row[1],
-                    "current_recommendation": row[3],
-                    "date_created": row[4],
-                    "status": row[5],
-                    "last_meeting_datetime": row[6]
-                })
-
-            start = (page - 1) * rows_per_page + 1 if total > 0 else 0
-            end = min(page * rows_per_page, total)
-
-            return {
-                "clients": clients,
-                "item_total": total,
-                "page": page,
-                "rows_per_page": rows_per_page,
-                "item_start": start,
-                "item_end": end,
-                "last_page": last_page
-            }
-        except Error as e:
-            print(f"Error listing clients paginated: {e}")
-            return {
-                "clients": [],
-                "item_total": 0,
-                "page": page,
-                "rows_per_page": rows_per_page,
-                "item_start": 0,
-                "item_end": 0,
-                "last_page": 0
-            }
-
     # ==================== MEETING OPERATIONS ====================
     
     def create_meeting(self, meeting_id: str, client_id: str, advisor_id: str, 
@@ -398,6 +304,7 @@ class DatabaseUtils:
                 }
             return None
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching meeting: {e}")
             return None
     
@@ -482,6 +389,7 @@ class DatabaseUtils:
                 })
             return meetings
         except Error as e:
+            self.conn.rollback()
             print(f"Error listing meetings: {e}")
             return []
         
@@ -573,10 +481,8 @@ class DatabaseUtils:
             
             # Determine ORDER BY clause
             if sort_by == "client_name":
-                # Handle NULL client_id (quick meetings)
-                order_by = f"LOWER(COALESCE(c.name, m.meeting_name)) {sort_order.upper()}"
-            elif sort_by == "meeting_type":
-                order_by = f"m.meeting_type {sort_order.upper()}"
+                # Handle NULL client_id (quick meetings) - put them last
+                order_by = f"c.name {sort_order.upper()} NULLS LAST"
             else:  # sort_by == "date"
                 order_by = f"m.created_datetime {sort_order.upper()}"
             
@@ -585,7 +491,7 @@ class DatabaseUtils:
                 SELECT 
                     m.meeting_id,
                     m.client_id,
-                    COALESCE(c.name, m.meeting_name) as client_name,
+                    c.name as client_name,
                     m.advisor_id,
                     m.meeting_name,
                     m.meeting_type,
@@ -633,6 +539,7 @@ class DatabaseUtils:
             }
             
         except Error as e:
+            self.conn.rollback()
             print(f"Error listing paginated meetings: {e}")
             return {
                 "success": False,
@@ -674,7 +581,11 @@ class DatabaseUtils:
         """Get meeting details by meeting ID"""
         try:
             cursor = self.conn.cursor()
-            query = "SELECT * FROM meeting_details WHERE meeting_id = %s;"
+            query = """SELECT meeting_id, transcript, summary, recommendations, questions,
+                          advisor_notes, question_tracker, client_preferences,
+                          updated_datetime, processing_status, processing_retry_count,
+                          processing_error
+                   FROM meeting_details WHERE meeting_id = %s;"""
             cursor.execute(query, (meeting_id,))
             meeting = cursor.fetchone()
             query = "SELECT * FROM meetings WHERE meeting_id = %s;"
@@ -683,24 +594,25 @@ class DatabaseUtils:
             cursor.close()
             
             if meeting:
-                if meeting:
-                    return {
-                        "meeting_id": meeting[0],
-                        "transcript": meeting[1],
-                        "summary": meeting[2],
-                        "recommendations": meeting[3],
-                        "questions": meeting[4],
-                        "advisor_notes": meeting[5],
-                        "updated_datetime": meeting[6],
-                        "processing_status": meeting[7],
-                        "processing_retry_count": meeting[8],
-                        "processing_error": meeting[9],
-                        "question_tracker": meeting[10],
-                        "meeting_name": details[6],
-                    }
+                return {
+                    "meeting_id": meeting[0],
+                    "transcript": meeting[1],
+                    "summary": meeting[2],
+                    "recommendations": meeting[3],
+                    "questions": meeting[4],
+                    "advisor_notes": meeting[5],
+                    "question_tracker": meeting[6],
+                    "client_preferences": meeting[7],
+                    "updated_datetime": meeting[8],
+                    "processing_status": meeting[9],
+                    "processing_retry_count": meeting[10],
+                    "processing_error": meeting[11],
+                    "meeting_name": details[6],
+                }
 
             return None
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching meeting details: {e}")
             return None
     
@@ -803,6 +715,7 @@ class DatabaseUtils:
                 })
             return details
         except Error as e:
+            self.conn.rollback()
             print(f"Error listing meeting details: {e}")
             return []
     
@@ -847,6 +760,7 @@ class DatabaseUtils:
                 }
             return None
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching product: {e}")
             return None
     
@@ -918,6 +832,7 @@ class DatabaseUtils:
                 })
             return products
         except Error as e:
+            self.conn.rollback()
             print(f"Error listing products: {e}")
             return []
     
@@ -991,6 +906,7 @@ class DatabaseUtils:
                 })
             return products
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching client products: {e}")
             return []
     
@@ -1023,6 +939,7 @@ class DatabaseUtils:
                 })
             return clients
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching product clients: {e}")
             return []
     
@@ -1106,6 +1023,7 @@ class DatabaseUtils:
                 })
             return segments
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching transcript segments: {e}")
             return []
     
@@ -1140,6 +1058,7 @@ class DatabaseUtils:
                 }
             return None
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching transcript segment: {e}")
             return None
     
@@ -1202,6 +1121,7 @@ class DatabaseUtils:
                 })
             return segments
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching transcript segments by time: {e}")
             return []
     
@@ -1367,6 +1287,7 @@ class DatabaseUtils:
             cursor.close()
             return result[0] if result else 0
         except Error as e:
+            self.conn.rollback()
             print(f"Error counting transcript segments: {e}")
             return 0
         
@@ -1442,6 +1363,7 @@ class DatabaseUtils:
             return meetings
             
         except Error as e:
+            self.conn.rollback()
             print(f"Error getting meetings for processing: {e}")
             return []
     
@@ -1489,7 +1411,8 @@ class DatabaseUtils:
             return False
     
     def save_processing_results(self, meeting_id: str, questions: str = None, 
-                               summary: str = None, recommendations: str = None) -> Dict:
+                               summary: str = None, recommendations: str = None,
+                               client_preferences: str = None) -> Dict:
         """
         Save successful processing results and mark as completed.
         
@@ -1498,6 +1421,7 @@ class DatabaseUtils:
             questions: Autofilled questions JSON string
             summary: Generated summary text
             recommendations: Product recommendations JSON string
+            client_preferences: Client preferences JSON string (optional)
         
         Returns:
             Dict with success status
@@ -1519,6 +1443,10 @@ class DatabaseUtils:
             if recommendations is not None:
                 updates.append("recommendations = %s")
                 params.append(recommendations)
+            
+            if client_preferences is not None:
+                updates.append("client_preferences = %s")
+                params.append(client_preferences)
             
             # Always update processing fields and updated_datetime
             updates.extend([
@@ -1661,6 +1589,7 @@ class DatabaseUtils:
                 }
             return None
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching feedback: {e}")
             return None
 
@@ -1692,6 +1621,7 @@ class DatabaseUtils:
                 })
             return feedbacks
         except Error as e:
+            self.conn.rollback()
             print(f"Error listing feedbacks: {e}")
             return []
 
@@ -1857,6 +1787,7 @@ class DatabaseUtils:
             return None
             
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching version: {e}")
             return None
     
@@ -1915,6 +1846,7 @@ class DatabaseUtils:
             return versions
             
         except Error as e:
+            self.conn.rollback()
             print(f"Error listing versions: {e}")
             return []
     
@@ -1956,6 +1888,7 @@ class DatabaseUtils:
             return None
             
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching current version: {e}")
             return None
     
@@ -2104,6 +2037,7 @@ class DatabaseUtils:
             return count
             
         except Error as e:
+            self.conn.rollback()
             print(f"Error counting versions: {e}")
             return 0
     
@@ -2147,6 +2081,7 @@ class DatabaseUtils:
             return timeline
             
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching timeline: {e}")
             return []
         
@@ -2158,9 +2093,9 @@ class DatabaseUtils:
         try:
             cursor = self.conn.cursor()
             query = """
-                INSERT INTO chat (id, meeting_id, user_id, created_at, updated_at)
-                VALUES (%s, %s, %s, NOW(), NOW())
-                RETURNING id, meeting_id, user_id, created_at;
+                INSERT INTO chats (chat_id, meeting_id, user_id, created_at)
+                VALUES (%s, %s, %s, NOW())
+                RETURNING chat_id, meeting_id, user_id, created_at;
             """
             cursor.execute(query, (chat_id, meeting_id, user_id))
             result = cursor.fetchone()
@@ -2183,7 +2118,7 @@ class DatabaseUtils:
         """Get chat by ID"""
         try:
             cursor = self.conn.cursor()
-            query = "SELECT id, meeting_id, user_id, created_at, updated_at, deleted_at FROM chat WHERE id = %s;"
+            query = "SELECT chat_id, meeting_id, user_id, created_at, deleted_at FROM chats WHERE chat_id = %s;"
             cursor.execute(query, (chat_id,))
             result = cursor.fetchone()
             cursor.close()
@@ -2199,6 +2134,7 @@ class DatabaseUtils:
                 }
             return None
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching chat: {e}")
             return None
     
@@ -2207,8 +2143,8 @@ class DatabaseUtils:
         try:
             cursor = self.conn.cursor()
             query = """
-                SELECT id, meeting_id, user_id, created_at, updated_at
-                FROM chat
+                SELECT chat_id, meeting_id, user_id, created_at
+                FROM chats
                 WHERE meeting_id = %s AND deleted_at IS NULL
                 ORDER BY created_at DESC
                 LIMIT 1;
@@ -2227,6 +2163,7 @@ class DatabaseUtils:
                 }
             return None
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching active chat: {e}")
             return None
     
@@ -2235,10 +2172,10 @@ class DatabaseUtils:
         try:
             cursor = self.conn.cursor()
             query = """
-                UPDATE chat
-                SET deleted_at = NOW(), updated_at = NOW()
-                WHERE id = %s AND deleted_at IS NULL
-                RETURNING id;
+                UPDATE chats
+                SET deleted_at = NOW()
+                WHERE chat_id = %s AND deleted_at IS NULL
+                RETURNING chat_id;
             """
             cursor.execute(query, (chat_id,))
             result = cursor.fetchone()
@@ -2260,9 +2197,9 @@ class DatabaseUtils:
         try:
             cursor = self.conn.cursor()
             query = """
-                INSERT INTO message (id, chat_id, content, sender_type, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, NOW(), NOW())
-                RETURNING id, chat_id, content, sender_type, created_at;
+                INSERT INTO messages (message_id, chat_id, content, sender_type, created_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                RETURNING message_id, chat_id, content, sender_type, created_at;
             """
             cursor.execute(query, (message_id, chat_id, content, sender_type))
             result = cursor.fetchone()
@@ -2289,15 +2226,15 @@ class DatabaseUtils:
             
             if include_deleted:
                 query = """
-                    SELECT id, chat_id, content, sender_type, created_at, updated_at, deleted_at
-                    FROM message
+                    SELECT message_id, chat_id, content, sender_type, created_at, deleted_at
+                    FROM messages
                     WHERE chat_id = %s
                     ORDER BY created_at ASC;
                 """
             else:
                 query = """
-                    SELECT id, chat_id, content, sender_type, created_at, updated_at, deleted_at
-                    FROM message
+                    SELECT message_id, chat_id, content, sender_type, created_at, deleted_at
+                    FROM messages
                     WHERE chat_id = %s AND deleted_at IS NULL
                     ORDER BY created_at ASC;
                 """
@@ -2319,6 +2256,7 @@ class DatabaseUtils:
                 })
             return messages
         except Error as e:
+            self.conn.rollback()
             print(f"Error fetching chat messages: {e}")
             return []
 
@@ -2399,6 +2337,7 @@ class DatabaseUtils:
             }
             
         except Error as e:
+            self.conn.rollback()
             print(f"Error checking transcription status: {e}")
             return {
                 "success": False,
@@ -2410,319 +2349,3 @@ class DatabaseUtils:
                 "completed": 0,
                 "failed": 0
             }
-
-    # ==================== QUESTION TEMPLATE OPERATIONS ====================
-
-    def list_question_templates(self, page: int = None, rows_per_page: int = None, template_name: str = None, template_owner: str = None, template_type: str = None, date_from=None, date_to=None) -> Dict:
-        """List question templates with optional pagination and filters.
-        When page/rows_per_page are None, returns all templates."""
-        try:
-            cursor = self.conn.cursor()
-            params = []
-
-            conditions = []
-            if template_name:
-                conditions.append("LOWER(t.template_name) LIKE LOWER(%s)")
-                params.append(f"%{template_name}%")
-            if template_owner:
-                conditions.append("LOWER(t.template_owner) LIKE LOWER(%s)")
-                params.append(f"%{template_owner}%")
-            if template_type:
-                conditions.append("t.template_type = %s")
-                params.append(template_type)
-            if date_from:
-                conditions.append("t.updated_at >= %s")
-                params.append(date_from)
-            if date_to:
-                conditions.append("t.updated_at <= %s")
-                params.append(date_to)
-            where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-
-            # Count total matching templates
-            count_query = f"""
-                SELECT COUNT(DISTINCT t.template_id)
-                FROM question_template t
-                {where_clause};
-            """
-            cursor.execute(count_query, params)
-            total = cursor.fetchone()[0]
-
-            # Clamp page to valid range based on filtered total
-            if page is not None and rows_per_page is not None:
-                last_page = math.ceil(total / rows_per_page) if total > 0 and rows_per_page > 0 else 1
-                if page > last_page:
-                    page = last_page
-
-            # Fetch results
-            pagination_clause = ""
-            data_params = list(params)
-            if page is not None and rows_per_page is not None:
-                offset = (page - 1) * rows_per_page
-                pagination_clause = "LIMIT %s OFFSET %s"
-                data_params += [rows_per_page, offset]
-
-            data_query = f"""
-                SELECT
-                    t.template_id,
-                    t.template_name,
-                    t.template_owner,
-                    t.template_type,
-                    t.updated_at,
-                    COUNT(q.question_id) AS question_count
-                FROM question_template t
-                LEFT JOIN question_section s ON s.template_id = t.template_id
-                LEFT JOIN question q ON q.section_id = s.section_id
-                {where_clause}
-                GROUP BY t.template_id, t.template_name, t.template_owner, t.template_type, t.updated_at, t.created_at
-                ORDER BY t.created_at
-                {pagination_clause};
-            """
-            cursor.execute(data_query, data_params)
-            results = cursor.fetchall()
-            cursor.close()
-
-            templates = []
-            for row in results:
-                templates.append({
-                    "template_id": row[0],
-                    "template_name": row[1],
-                    "template_owner": row[2],
-                    "template_type": row[3],
-                    "last_modified": row[4].isoformat() if row[4] else None,
-                    "number_of_questions": row[5] or 0
-                })
-            if page is not None and rows_per_page is not None:
-                start = (page - 1) * rows_per_page + 1
-                end = min(page * rows_per_page, total)
-            else:
-                start = 1 if total > 0 else 0
-                end = total
-                last_page = 1
-
-            return {"templates": templates, "item_total": total, "page": page, "rows_per_page": rows_per_page, "item_start": start, "item_end": end, "last_page": last_page}
-        except Error as e:
-            print(f"Error listing question templates: {e}")
-            return {"templates": [], "item_total": 0, "page": page, "rows_per_page": rows_per_page, "item_start": 0, "item_end": 0, "last_page": 0}
-
-    def delete_question_template(self, template_id: str) -> Dict:
-        """Delete a question template (cascades to sections and questions)"""
-        try:
-            cursor = self.conn.cursor()
-            query = "DELETE FROM question_template WHERE template_id = %s;"
-            cursor.execute(query, (template_id,))
-            self.conn.commit()
-            cursor.close()
-            return {"success": True, "message": "Question template deleted successfully"}
-        except Error as e:
-            self.conn.rollback()
-            return {"success": False, "message": f"Error deleting question template: {e}"}
-
-
-    # ==================== QUESTION SECTION OPERATIONS ====================
-
-    def list_question_sections(self, template_id: str) -> List[Dict]:
-        """List all sections for a given template, ordered by sort_order"""
-        try:
-            cursor = self.conn.cursor()
-            query = "SELECT * FROM question_section WHERE template_id = %s ORDER BY sort_order;"
-            cursor.execute(query, (template_id,))
-            results = cursor.fetchall()
-            cursor.close()
-
-            sections = []
-            for row in results:
-                sections.append({
-                    "section_id": row[0],
-                    "template_id": row[1],
-                    "name": row[2],
-                    "sort_order": row[3],
-                    "created_at": row[4]
-                })
-            return sections
-        except Error as e:
-            print(f"Error listing question sections: {e}")
-            return []
-
-    def list_questions_by_section(self, section_id: str) -> List[Dict]:
-        """List all questions for a given section, ordered by sort_order"""
-        try:
-            cursor = self.conn.cursor()
-            query = "SELECT * FROM question WHERE section_id = %s ORDER BY sort_order;"
-            cursor.execute(query, (section_id,))
-            results = cursor.fetchall()
-            cursor.close()
-
-            questions = []
-            for row in results:
-                questions.append({
-                    "question_id": row[0],
-                    "section_id": row[1],
-                    "content": row[2],
-                    "sort_order": row[3],
-                    "created_at": row[4],
-                    "updated_at": row[5]
-                })
-            return questions
-        except Error as e:
-            print(f"Error listing questions: {e}")
-            return []
-
-    # ==================== DETAILED TEMPLATE OPERATIONS ====================
-
-
-    # ==================== FULL TEMPLATE WITH QUESTIONS ====================
-
-    def get_detailed_template(self, template_id: str) -> Optional[Dict]:
-        """Get a complete template with all sections and questions (structured like TCP_QUESTIONS)"""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT * FROM question_template WHERE template_id = %s;", (template_id,))
-            result = cursor.fetchone()
-            cursor.close()
-
-            if not result:
-                return None
-
-            template_type = result[3]
-            template = {
-                "template_id": result[0],
-                "template_name": result[1],
-                "template_owner": result[2],
-                "template_type": template_type,
-                "created_at": result[4].isoformat() if result[4] else None,
-                "updated_at": result[5].isoformat() if result[5] else None
-            }
-
-            sections = self.list_question_sections(template_id)
-
-            sections_dict = {}
-            for section in sections:
-                questions = self.list_questions_by_section(section["section_id"])
-                sections_dict[section["name"]] = [q["content"] for q in questions]
-            template["questions"] = sections_dict
-
-            return template
-        except Error as e:
-            print(f"Error fetching detailed template: {e}")
-            return None
-
-    def get_categorized_questions(self) -> Dict[str, Dict[str, List[str]]]:
-        """
-        Returns data in the exact same format as CATEGORIZED_QUESTIONS from config/questions.py.
-
-        Format: {template_name: {section_name: [question_strings]}}
-
-        Uses template_name as the key (e.g. "Total Client Profile", "Pre Discovery").
-        """
-        try:
-            result = {}
-            templates = self.list_question_templates()["templates"]
-            for template in templates:
-                template_name = template["template_name"]
-                template_id = template["template_id"]
-
-                sections = self.list_question_sections(template_id)
-                sections_dict = {}
-                for section in sections:
-                    questions = self.list_questions_by_section(section["section_id"])
-                    sections_dict[section["name"]] = [q["content"] for q in questions]
-
-                result[template_name] = sections_dict
-
-            return result
-        except Error as e:
-            print(f"Error fetching categorized questions: {e}")
-            return {}
-
-    def create_detailed_template(self, template_id: str, template_name: str, sections: Dict[str, List[str]], template_owner: str = None, template_type: str = "with-section") -> Dict:
-        """
-        Bulk create a template with all sections and questions in one go.
-
-        Accepts the same format as TCP_QUESTIONS:
-            sections = {"section 1 - values": ["question 1", "question 2"], ...}
-        """
-        try:
-            import uuid
-            cursor = self.conn.cursor()
-
-            # Create template
-            cursor.execute(
-                "INSERT INTO question_template (template_id, template_name, template_owner, template_type, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW());",
-                (template_id, template_name, template_owner, template_type)
-            )
-
-            # Create sections and questions (skip sections with no questions)
-            for sort_order, (section_name, questions) in enumerate(sections.items()):
-                if not questions:
-                    continue
-                section_id = str(uuid.uuid4())
-                cursor.execute(
-                    "INSERT INTO question_section (section_id, template_id, name, sort_order, created_at) VALUES (%s, %s, %s, %s, NOW());",
-                    (section_id, template_id, section_name, sort_order)
-                )
-                for q_order, content in enumerate(questions):
-                    question_id = str(uuid.uuid4())
-                    cursor.execute(
-                        "INSERT INTO question (question_id, section_id, content, sort_order, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW());",
-                        (question_id, section_id, content, q_order)
-                    )
-
-            self.conn.commit()
-            cursor.close()
-            return {"success": True, "message": "Template created successfully", "template_id": template_id}
-        except Error as e:
-            self.conn.rollback()
-            return {"success": False, "message": f"Error creating full template: {e}"}
-
-    def save_detailed_template(self, template_id: str, template_name: str, sections: Dict[str, List[str]], template_owner: str = None, template_type: str = None) -> Dict:
-        """
-        Full replace of a template's sections and questions.
-        Deletes all existing sections/questions and re-inserts from the payload.
-        """
-        try:
-            import uuid
-            cursor = self.conn.cursor()
-
-            # Update template metadata
-            if template_type:
-                cursor.execute(
-                    "UPDATE question_template SET template_name = %s, template_owner = %s, template_type = %s, updated_at = NOW() WHERE template_id = %s;",
-                    (template_name, template_owner, template_type, template_id)
-                )
-            else:
-                cursor.execute(
-                    "UPDATE question_template SET template_name = %s, template_owner = %s, updated_at = NOW() WHERE template_id = %s;",
-                    (template_name, template_owner, template_id)
-                )
-            if cursor.rowcount == 0:
-                cursor.close()
-                return {"success": False, "message": "Template not found"}
-
-            # Delete old sections (cascades to questions)
-            cursor.execute(
-                "DELETE FROM question_section WHERE template_id = %s;",
-                (template_id,)
-            )
-
-            # Insert new sections and questions (skip sections with no questions)
-            for sort_order, (section_name, questions) in enumerate(sections.items()):
-                if not questions:
-                    continue
-                section_id = str(uuid.uuid4())
-                cursor.execute(
-                    "INSERT INTO question_section (section_id, template_id, name, sort_order, created_at) VALUES (%s, %s, %s, %s, NOW());",
-                    (section_id, template_id, section_name, sort_order)
-                )
-                for q_order, content in enumerate(questions):
-                    question_id = str(uuid.uuid4())
-                    cursor.execute(
-                        "INSERT INTO question (question_id, section_id, content, sort_order, created_at, updated_at) VALUES (%s, %s, %s, %s, NOW(), NOW());",
-                        (question_id, section_id, content, q_order)
-                    )
-
-            self.conn.commit()
-            cursor.close()
-            return {"success": True, "message": "Template saved successfully", "template_id": template_id}
-        except Error as e:
-            self.conn.rollback()
-            return {"success": False, "message": f"Error saving template: {e}"}

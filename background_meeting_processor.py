@@ -41,6 +41,7 @@ import json
 from services.question_service import QuestionService
 from services.summay_service import SummaryService
 from services.product_service import ProductRecommendationService
+from services.client_preference_service import ClientPreferenceService
 from services.transcription_service import TranscribeService
 from utils.db_utils import DatabaseUtils
 
@@ -103,7 +104,7 @@ def create_db_connection():
             user=DB_USER,
             password=DB_PASSWORD,
             port=DB_PORT,
-            sslmode="require"
+            sslmode="prefer"
         )
         logger.info("✓ Database connection established")
         return connection
@@ -153,6 +154,7 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
         question_service = QuestionService()
         # summary_service = SummaryService()
         recommendation_service = ProductRecommendationService()
+        preference_service = ClientPreferenceService()
         
         # Define async wrapper functions
         async def autofill_task():
@@ -238,21 +240,54 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
                 logger.error(f"[{meeting_id}] ✗ Recommendations failed: {e}")
                 return {"success": False, "error": str(e)}
 
+        async def preference_task():
+            """Extract client preferences from transcript"""
+            logger.info(f"[{meeting_id}] Running client preference extraction...")
+            start_time = time.time()
+            
+            try:
+                preferences = preference_service.extract_preferences(
+                    transcript=transcript,
+                    meeting_id=meeting_id,
+                    conn=conn
+                )
+                
+                # Convert to JSON string for storage
+                preferences_json = json.dumps(preferences)
+                
+                duration = time.time() - start_time
+                logger.info(f"[{meeting_id}] ✓ Preferences extracted in {duration:.2f}s")
+                
+                return {"success": True, "client_preferences": preferences_json}
+                
+            except Exception as e:
+                logger.error(f"[{meeting_id}] ✗ Preference extraction failed: {e}")
+                return {"success": False, "error": str(e)}
+
         
-        # Run tasks in parallel (took away # summary_task() and summary_result)
+        # Run core tasks in parallel
         autofill_result, recommendation_result = await asyncio.gather(
             autofill_task(),
             recommendation_task()
         )
+        
+        # Option 1: Run preference task sequentially AFTER core tasks to prevent Rate Limit
+        preference_result = await preference_task()
 
-        # Check if all succeeded (removed and summary_result["success"])
+        # Check if core tasks succeeded (preferences are optional — non-blocking)
         if autofill_result["success"] and recommendation_result["success"]:
-            return {
+            result = {
                 "success": True,
                 "questions": autofill_result["questions"],
                 # "summary": summary_result["summary"],
                 "recommendations": recommendation_result["recommendations"]
             }
+            # Preferences are optional — add if available, log warning if failed
+            if preference_result["success"]:
+                result["client_preferences"] = preference_result["client_preferences"]
+            else:
+                logger.warning(f"[{meeting_id}] Preferences failed but not blocking: {preference_result.get('error', 'unknown')}")
+            return result
         else:
             # Collect errors
             errors = []
@@ -351,7 +386,8 @@ def process_single_meeting(meeting: Dict, conn) -> bool:
                 meeting_id=meeting_id,
                 questions=result["questions"],
                 # summary=result["summary"],
-                recommendations=result["recommendations"]
+                recommendations=result["recommendations"],
+                client_preferences=result.get("client_preferences")
             )
             
             if save_result["success"]:

@@ -1,12 +1,10 @@
 import os
 import psycopg2
 from backup import network
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from routers import login, question_analysis, meeting, question_template, advisor, client, transcript, process, feedback, chat
-from services.question_template_service import QuestionTemplateService
-from utils.auth import get_current_user
+from routers import login, question_analysis, meeting, question_template, advisor, client, summarization, transcript, process, feedback, chat
 import uvicorn
 
 # Load environment variables
@@ -21,7 +19,7 @@ def create_connection():
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
             port=os.getenv("DB_PORT", "5432"),
-            sslmode="require"
+            sslmode="prefer"
         )
         print("✓ Successfully connected to PostgreSQL database")
         return connection
@@ -39,29 +37,25 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS"),
+    allow_origins=os.getenv("CORS_ORIGINS", "*").split(",") if "," in os.getenv("CORS_ORIGINS", "") else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Shared auth dependency applied to every protected router
-_auth = [Depends(get_current_user)]
-
 # Include routers
-# login.router is public — it IS the authentication entry point
 app.include_router(login.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(question_analysis.router, prefix="/api/v1/question", tags=["Question Analysis"])
+app.include_router(meeting.router, prefix="/api/v1/meeting", tags=["Meetings"])
+app.include_router(question_template.router, prefix="/api/v1/template", tags=["Question Templates"])
+app.include_router(advisor.router, prefix="/api/v1/advisor", tags=["Advisors"])
+app.include_router(client.router, prefix="/api/v1/client", tags=["Clients"])
+app.include_router(transcript.router, prefix="/api/v1/transcript", tags=["Transcripts"])
+app.include_router(process.router, prefix="/api/v1/process", tags=["Process"])
+app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"])
+app.include_router(chat.router, prefix="/api/v1", tags=["Chat"])
 
-# All other routers require a valid Bearer token
-app.include_router(question_analysis.router, prefix="/api/v1/question", tags=["Question Analysis"], dependencies=_auth)
-app.include_router(meeting.router, prefix="/api/v1/meeting", tags=["Meetings"], dependencies=_auth)
-app.include_router(question_template.router, prefix="/api/v1/template", tags=["Question Templates"], dependencies=_auth)
-app.include_router(advisor.router, prefix="/api/v1/advisor", tags=["Advisors"], dependencies=_auth)
-app.include_router(client.router, prefix="/api/v1/client", tags=["Clients"], dependencies=_auth)
-app.include_router(transcript.router, prefix="/api/v1/transcript", tags=["Transcripts"], dependencies=_auth)
-app.include_router(process.router, prefix="/api/v1/process", tags=["Process"], dependencies=_auth)
-app.include_router(feedback.router, prefix="/api/v1/feedback", tags=["Feedback"], dependencies=_auth)
-app.include_router(chat.router, prefix="/api/v1", tags=["Chat"], dependencies=_auth)
+app.include_router(summarization.router, prefix="/api/v1", tags=["Summarization"])
 
 @app.get("/")
 async def root():
@@ -84,10 +78,6 @@ def _startup_db():
     if conn is None:
         print("Warning: DB connection unavailable on startup (app.state.db_conn not set)")
     app.state.db_conn = conn
-
-    # Load CATEGORIZED_QUESTIONS from DB (falls back to hardcoded defaults if empty)
-    if conn:
-        QuestionTemplateService(conn).refresh_categorized_questions()
 
 
 @app.on_event("shutdown")
