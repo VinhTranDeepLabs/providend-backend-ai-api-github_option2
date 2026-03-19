@@ -169,10 +169,17 @@ def run_evaluation():
     # Force login inside script to ensure dashboard push
     deepeval.login(api_key=os.getenv("DEEPEVAL_API_KEY"))
     
-    results = evaluate(
-        test_cases=test_cases,
-        metrics=[PREFERENCE_ACCURACY_METRIC, ANTI_HALLUCINATION_METRIC],
+    results_rich = evaluate(
+        test_cases=[test_cases[0]],
+        metrics=[PREFERENCE_ACCURACY_METRIC],
     )
+    
+    results_finance = evaluate(
+        test_cases=[test_cases[1]],
+        metrics=[ANTI_HALLUCINATION_METRIC],
+    )
+    
+    results = results_rich + results_finance
     
     print("\n" + "="*60)
     print("EVALUATION COMPLETE")
