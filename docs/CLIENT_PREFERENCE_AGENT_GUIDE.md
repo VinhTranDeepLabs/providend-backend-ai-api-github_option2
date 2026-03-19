@@ -47,7 +47,96 @@ Return a JSON object with this EXACT structure:
       "details": {"activities": ["tennis", "gardening"], "frequency": "weekly"},
       "evidence": "Client said: 'I play tennis every Sunday morning at the Tanglin Club'"
     },
-    ... (all 19 categories formatted similarly) ...
+    "favorite_sports_teams": {
+      "found": true/false,
+      "details": [{"team": "Arsenal FC", "sport": "Football"}],
+      "evidence": "Client mentioned: 'Did you catch the Arsenal match last night?'"
+    },
+    "food_and_dietary_preferences": {
+      "found": true/false,
+      "details": {"favorites": [], "dietary_restrictions": [], "favorite_restaurants": [], "allergies": []},
+      "evidence": "..."
+    },
+    "beverage_preferences": {
+      "found": true/false,
+      "details": {"preferred_drinks": [], "favorites": ""},
+      "evidence": "..."
+    },
+    "travel_preferences": {
+      "found": true/false,
+      "details": {"style": "", "frequent_destinations": [], "frequency": ""},
+      "evidence": "..."
+    },
+    "pet_ownership": {
+      "found": true/false,
+      "details": [{"type": "", "breed": "", "name": ""}],
+      "evidence": "..."
+    },
+    "favorite_media": {
+      "found": true/false,
+      "details": {"tv_shows": [], "movies": [], "books": [], "podcasts": [], "music": []},
+      "evidence": "..."
+    },
+    "real_estate_status": {
+      "found": true/false,
+      "details": {"properties_owned": null, "types": [], "preference": "", "plans": ""},
+      "evidence": "..."
+    },
+    "vehicle_preferences": {
+      "found": true/false,
+      "details": {"current_vehicles": [], "interests": ""},
+      "evidence": "..."
+    },
+    "upcoming_milestones": {
+      "found": true/false,
+      "details": [{"event": "", "timeline": ""}],
+      "evidence": "..."
+    },
+    "charitable_causes": {
+      "found": true/false,
+      "details": {"causes": [], "organizations": [], "involvement": ""},
+      "evidence": "..."
+    },
+    "communication_style": {
+      "found": true/false,
+      "details": {"preferred_method": "", "availability_notes": "", "meeting_preference": ""},
+      "evidence": "..."
+    },
+    "tech_savviness": {
+      "found": true/false,
+      "details": {"level": "low/medium/high", "notes": ""},
+      "evidence": "..."
+    },
+    "weekend_routines": {
+      "found": true/false,
+      "details": {"activities": [], "pattern": ""},
+      "evidence": "..."
+    },
+    "dislikes_or_pet_peeves": {
+      "found": true/false,
+      "details": [],
+      "evidence": "..."
+    },
+    "family_and_relationships": {
+      "found": true/false,
+      "details": {"spouse": "", "children": [], "parents": "", "family_activities": []},
+      "evidence": "..."
+    },
+    "health_and_fitness": {
+      "found": true/false,
+      "details": {"activities": [], "conditions": "", "goals": ""},
+      "evidence": "..."
+    },
+    "career_and_business": {
+      "found": true/false,
+      "details": {"industry": "", "role": "", "side_projects": [], "plans": ""},
+      "evidence": "..."
+    },
+    "education_and_learning": {
+      "found": true/false,
+      "details": {"client_education": "", "children_schools": [], "courses": []},
+      "evidence": "..."
+    }
   },
   "extraction_summary": {
     "total_categories_found": 0,
