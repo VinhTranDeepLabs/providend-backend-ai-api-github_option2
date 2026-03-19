@@ -1,0 +1,72 @@
+# Client Preference Agent - Developer Guide
+
+This document serves as a reference for the `ClientPreferenceService` implemented in `services/client_preference_service.py`. It details the LLM prompt design and provides test case examples to verify the extraction logic, specifically focusing on the Anti-Hallucination mechanism.
+
+## 1. System Prompt & 19 Categories
+
+The Agent uses a strict JSON-mode extraction prompt to scan meeting transcripts and categorize personal facts into 19 predefined buckets.
+
+### The Categories Guide
+```text
+=== 19 CLIENT PREFERENCE CATEGORIES ===
+
+1. hobbies_and_activities (e.g., "I play golf every Saturday")
+2. favorite_sports_teams (e.g., "I'm a huge Liverpool fan")
+3. food_and_dietary_preferences (e.g., "I'm vegetarian")
+4. beverage_preferences (e.g., "I only drink black coffee")
+5. travel_preferences (e.g., "We go to Japan every year")
+6. pet_ownership (e.g., "Our golden retriever Max")
+7. favorite_media (e.g., "I've been watching Succession")
+8. real_estate_status (e.g., "We just bought a condo in Bukit Timah")
+9. vehicle_preferences (e.g., "Just got a Tesla Model 3")
+10. upcoming_milestones (e.g., "My daughter graduates in June")
+11. charitable_causes (e.g., "I donate to the Red Cross annually")
+12. communication_style (e.g., "I prefer WhatsApp over email")
+13. tech_savviness (e.g., "I do everything on my phone")
+14. weekend_routines (e.g., "Every Sunday we go to church then brunch")
+15. dislikes_or_pet_peeves (e.g., "I hate being called on weekends")
+16. family_and_relationships (e.g., "My wife Sarah works at DBS")
+17. health_and_fitness (e.g., "I run marathons")
+18. career_and_business (e.g., "I'm thinking of starting a cafe")
+19. education_and_learning (e.g., "I studied at NUS")
+```
+
+### The System Prompt & Critical Rules
+```text
+You are a Client Relationship Intelligence Analyst at Providend, Singapore's leading fee-only financial advisory firm.
+Your task is to carefully scan an entire meeting transcript between a financial advisor and their client, and extract any personal facts, preferences, or lifestyle information mentioned by the client into 19 predefined categories.
+
+[... Schema Definitions Here ...]
+
+=== CRITICAL RULES ===
+1. ONLY extract EXPLICITLY STATED facts. NEVER infer, assume, or guess.
+2. Context matters — distinguish personal facts from financial discussions:
+   CORRECT: Client says "I play golf every Saturday" → hobbies_and_activities: golf
+   INCORRECT: Client says "The golf ETF performed well" → This is NOT a hobby, it's a financial discussion. Do NOT extract.
+   CORRECT: Client says "My wife and I just bought a condo" → real_estate_status + family_and_relationships
+   INCORRECT: Client says "Property prices are rising" → This is market commentary, NOT real estate ownership. Do NOT extract.
+3. If a category has NO explicitly mentioned facts, set "found": false and "details": null and "evidence": null.
+4. For "evidence", use DIRECT QUOTES from the transcript. If paraphrasing, clearly indicate so.
+...
+```
+
+---
+
+## 2. Test Cases and Verification
+
+We have documented test cases in `tests/test_client_preference_service.py` to ensure the prompt behaves correctly.
+
+### Test 1: Rich Transcript Extraction
+**Input:** A transcript containing heavy casual conversation (Golf, Japanese food, Hokkaido trip, Labrador dog, Netflix series, Liverpool fan).
+**Expected Output:** The LLM successfully sets `"found": true` for Hobbies, Pets, Sports Teams, Travel, Food, and Media, while keeping the rest as `false`.
+
+### Test 2: Finance-Only (Anti-Hallucination Test)
+**Input:** A transcript strictly discussing financial portoflios (Equity allocation, CPF, Retirement timeline, REITs, Fixed deposits).
+**Expected Output:** Crucial test. The LLM must return `"total_categories_found": 0`. It must recognize that discussing "REITs" does not mean they own a house, and discussing "Equity" does not mean they have a side business.
+
+### How to Run the Tests
+Engineers can verify this locally by executing:
+```bash
+python tests/test_client_preference_service.py
+```
+This requires `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_ENDPOINT` to be configured in your environment.

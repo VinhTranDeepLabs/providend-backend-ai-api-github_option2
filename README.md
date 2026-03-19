@@ -387,6 +387,11 @@ The application uses PostgreSQL with the following core tables:
 
 ## Development
 
+### Documentation
+
+For detailed information on specific AI modules and implementation details, refer to:
+- [Client Preference Agent Guide](docs/CLIENT_PREFERENCE_AGENT_GUIDE.md) - Details prompt design, 19 category extraction logic, and anti-hallucination test examples.
+
 ### Running Tests
 
 ```bash
