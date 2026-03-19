@@ -144,6 +144,13 @@ Return a JSON object with this EXACT structure:
     "confidence": "Low/Medium/High",
     "notes": "Brief note about the transcript content"
   }
+},
+  "extraction_summary": {
+    "total_categories_found": 0,
+    "total_categories_not_found": 19,
+    "confidence": "Low/Medium/High",
+    "notes": "Brief note about the transcript content"
+  }
 }
 
 === CRITICAL RULES ===
