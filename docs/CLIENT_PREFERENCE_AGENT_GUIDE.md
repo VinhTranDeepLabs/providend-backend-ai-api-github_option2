@@ -153,7 +153,7 @@ Return a JSON object with this EXACT structure:
   }
 }
 
-=== CRITICAL RULES ===
+=== CRITICAL RULES === 
 
 1. ONLY extract EXPLICITLY STATED facts. NEVER infer, assume, or guess.
 2. Context matters — distinguish personal facts from financial discussions:
