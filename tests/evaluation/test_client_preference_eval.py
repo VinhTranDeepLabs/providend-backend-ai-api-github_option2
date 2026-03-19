@@ -179,7 +179,7 @@ def run_evaluation():
         metrics=[ANTI_HALLUCINATION_METRIC],
     )
     
-    results = results_rich + results_finance
+    results = [results_rich, results_finance]
     
     print("\n" + "="*60)
     print("EVALUATION COMPLETE")
