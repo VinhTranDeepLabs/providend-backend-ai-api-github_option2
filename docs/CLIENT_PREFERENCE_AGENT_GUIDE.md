@@ -10,8 +10,8 @@ The Agent uses a strict JSON-mode extraction prompt to scan meeting transcripts 
 ```text
 === 19 CLIENT PREFERENCE CATEGORIES ===
 
-1. hobbies_and_activities (e.g., "I play golf every Saturday")
-2. favorite_sports_teams (e.g., "I'm a huge Liverpool fan")
+1. hobbies_and_activities (e.g., "I play tennis every Sunday")
+2. favorite_sports_teams (e.g., "I'm a huge Arsenal fan")
 3. food_and_dietary_preferences (e.g., "I'm vegetarian")
 4. beverage_preferences (e.g., "I only drink black coffee")
 5. travel_preferences (e.g., "We go to Japan every year")
@@ -44,8 +44,8 @@ Return a JSON object with this EXACT structure:
   "client_preferences": {
     "hobbies_and_activities": {
       "found": true/false,
-      "details": {"activities": ["golf", "reading"], "frequency": "weekly"},
-      "evidence": "Client said: 'I play golf every Saturday morning at Sentosa Golf Club'"
+      "details": {"activities": ["tennis", "gardening"], "frequency": "weekly"},
+      "evidence": "Client said: 'I play tennis every Sunday morning at the Tanglin Club'"
     },
     ... (all 19 categories formatted similarly) ...
   },
@@ -61,8 +61,8 @@ Return a JSON object with this EXACT structure:
 
 1. ONLY extract EXPLICITLY STATED facts. NEVER infer, assume, or guess.
 2. Context matters — distinguish personal facts from financial discussions:
-   CORRECT: Client says "I play golf every Saturday" → hobbies_and_activities: golf
-   INCORRECT: Client says "The golf ETF performed well" → This is NOT a hobby, it's a financial discussion. Do NOT extract.
+   CORRECT: Client says "I play tennis every Sunday" → hobbies_and_activities: tennis
+   INCORRECT: Client says "The sports ETF performed well" → This is NOT a hobby, it's a financial discussion. Do NOT extract.
    CORRECT: Client says "My wife and I just bought a condo" → real_estate_status + family_and_relationships
    INCORRECT: Client says "Property prices are rising" → This is market commentary, NOT real estate ownership. Do NOT extract.
 3. If a category has NO explicitly mentioned facts, set "found": false and "details": null and "evidence": null.

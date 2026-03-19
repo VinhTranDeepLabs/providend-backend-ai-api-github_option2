@@ -12,13 +12,13 @@ PREFERENCE_CATEGORIES_GUIDE = """
 
 1. hobbies_and_activities
    What to look for: Sports, hobbies, leisure activities, clubs, regular pastimes
-   Examples: "I play golf every Saturday", "I joined a book club", "I do pottery on weekends"
-   Schema: {"activities": ["golf", "reading"], "frequency": "weekly/monthly/etc"}
+   Examples: "I play tennis every Sunday", "I joined a book club", "I do pottery on weekends"
+   Schema: {"activities": ["tennis", "reading"], "frequency": "weekly/monthly/etc"}
 
 2. favorite_sports_teams
    What to look for: Teams or leagues the client follows, fan references
-   Examples: "I'm a huge Liverpool fan", "We watched the Lakers game last night"
-   Schema: [{"team": "Liverpool FC", "sport": "Football"}]
+   Examples: "I'm a huge Arsenal fan", "We watched the Lakers game last night"
+   Schema: [{"team": "Arsenal FC", "sport": "Football"}]
 
 3. food_and_dietary_preferences
    What to look for: Favorite foods, restaurants, dietary restrictions, allergies
@@ -164,13 +164,13 @@ Return a JSON object with this EXACT structure:
   "client_preferences": {{
     "hobbies_and_activities": {{
       "found": true/false,
-      "details": {{"activities": ["golf", "reading"], "frequency": "weekly"}},
-      "evidence": "Client said: 'I play golf every Saturday morning at Sentosa Golf Club'"
+      "details": {{"activities": ["tennis", "gardening"], "frequency": "weekly"}},
+      "evidence": "Client said: 'I play tennis every Sunday morning at the Tanglin Club'"
     }},
     "favorite_sports_teams": {{
       "found": true/false,
-      "details": [{{"team": "Liverpool FC", "sport": "Football"}}],
-      "evidence": "Client mentioned: 'Did you catch the Liverpool match last night?'"
+      "details": [{{"team": "Arsenal FC", "sport": "Football"}}],
+      "evidence": "Client mentioned: 'Did you catch the Arsenal match last night?'"
     }},
     "food_and_dietary_preferences": {{
       "found": true/false,
@@ -270,8 +270,8 @@ Return a JSON object with this EXACT structure:
 
 1. ONLY extract EXPLICITLY STATED facts. NEVER infer, assume, or guess.
 2. Context matters — distinguish personal facts from financial discussions:
-   CORRECT: Client says "I play golf every Saturday" → hobbies_and_activities: golf
-   INCORRECT: Client says "The golf ETF performed well" → This is NOT a hobby, it's a financial discussion. Do NOT extract.
+   CORRECT: Client says "I play tennis every Sunday" → hobbies_and_activities: tennis
+   INCORRECT: Client says "The sports ETF performed well" → This is NOT a hobby, it's a financial discussion. Do NOT extract.
    CORRECT: Client says "My wife and I just bought a condo" → real_estate_status + family_and_relationships
    INCORRECT: Client says "Property prices are rising" → This is market commentary, NOT real estate ownership. Do NOT extract.
 3. If a category has NO explicitly mentioned facts, set "found": false and "details": null and "evidence": null.
