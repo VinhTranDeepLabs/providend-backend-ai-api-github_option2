@@ -207,3 +207,15 @@ Engineers can verify this locally by executing:
 python tests/test_client_preference_service.py
 ```
 This requires `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_ENDPOINT` to be configured in your environment.
+
+---
+
+## 3. Dynamic Client Preferences Upgrade (Recent Updates)
+
+The Dynamic Client Preferences upgrade is fully complete! Here are the quick highlights:
+
+*   **The Upgrade:** The Agent can now dynamically auto-learn and categorize unique out-of-the-box facts (like peanut allergies) into a new `dynamic_preferences` array. Strict rules have been added to ensure it creates abstract category names (max 3 words) and always cites the exact evidence quote to prevent hallucinations.
+*   **Testing & DeepEval (100% Pass):**
+    *   Added a new **'Completeness'** metric to our dashboard to ensure the AI never misses any hidden personal facts.
+    *   Passed a super tricky "Mixed Transcript" test (hiding a daughter's wedding in Italy amidst heavy stock/bond discussions). The bot extracted the personal milestone perfectly without grabbing any financial noise!
+
