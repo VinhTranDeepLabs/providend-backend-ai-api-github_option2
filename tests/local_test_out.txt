@@ -1,0 +1,189 @@
+{
+  "client_preferences": {
+    "hobbies_and_activities": {
+      "found": true,
+      "details": {
+        "activities": [
+          "golf"
+        ],
+        "frequency": "weekly"
+      },
+      "evidence": "Client said: 'I played golf on Saturday with two old friends. My swing is still unreliable, but at least it gets me outside.'"
+    },
+    "favorite_sports_teams": {
+      "found": true,
+      "details": [
+        {
+          "team": "Arsenal",
+          "sport": "Football"
+        }
+      ],
+      "evidence": "Client said: 'I watched Arsenal at home. I\u2019ve supported Arsenal for years, so I\u2019m used to stress.'"
+    },
+    "food_and_dietary_preferences": {
+      "found": true,
+      "details": {
+        "favorites": [],
+        "dietary_restrictions": [],
+        "favorite_restaurants": [
+          "Crystal Jade"
+        ],
+        "allergies": []
+      },
+      "evidence": "Client said: 'My wife and I also went to Crystal Jade for dinner. We go there quite often because it\u2019s one of the few places we both love.'"
+    },
+    "beverage_preferences": {
+      "found": false,
+      "details": null,
+      "evidence": null
+    },
+    "travel_preferences": {
+      "found": true,
+      "details": {
+        "style": "",
+        "frequent_destinations": [],
+        "frequency": "",
+        "upcoming_trip": "Considering a holiday for 20th wedding anniversary"
+      },
+      "evidence": "Client said: 'Yes, my wife and I have our twentieth wedding anniversary next spring. We\u2019re thinking about a proper holiday for once.'"
+    },
+    "pet_ownership": {
+      "found": true,
+      "details": [
+        {
+          "type": "dog",
+          "breed": "Golden Retriever",
+          "name": "Max"
+        }
+      ],
+      "evidence": "Client said: 'Our golden retriever. He\u2019s getting older, so the vet bills are becoming more regular.'"
+    },
+    "favorite_media": {
+      "found": false,
+      "details": null,
+      "evidence": null
+    },
+    "real_estate_status": {
+      "found": false,
+      "details": null,
+      "evidence": null
+    },
+    "vehicle_preferences": {
+      "found": true,
+      "details": {
+        "current_vehicles": [],
+        "interests": "Considering buying a Tesla Model Y within the next year; has looked at a few EVs"
+      },
+      "evidence": "Client said: 'And I\u2019m also considering buying a Tesla Model Y within the next year. I\u2019ve looked at a few EVs, but that\u2019s the one I keep coming back to.'"
+    },
+    "upcoming_milestones": {
+      "found": true,
+      "details": [
+        {
+          "event": "daughter starting university",
+          "timeline": "next year"
+        },
+        {
+          "event": "son graduating from secondary school",
+          "timeline": "soon"
+        },
+        {
+          "event": "20th wedding anniversary",
+          "timeline": "next spring"
+        }
+      ],
+      "evidence": "Client said: 'My daughter is starting university next year, so I want tuition and living costs covered... My son is also graduating from secondary school soon... my wife and I have our twentieth wedding anniversary next spring.'"
+    },
+    "charitable_causes": {
+      "found": false,
+      "details": null,
+      "evidence": null
+    },
+    "communication_style": {
+      "found": false,
+      "details": null,
+      "evidence": null
+    },
+    "tech_savviness": {
+      "found": false,
+      "details": null,
+      "evidence": null
+    },
+    "weekend_routines": {
+      "found": true,
+      "details": {
+        "activities": [
+          "golf",
+          "watching Arsenal"
+        ],
+        "pattern": "Golf on Saturday, watching Arsenal on Sunday"
+      },
+      "evidence": "Client said: 'I played golf on Saturday with two old friends... Then on Sunday I watched Arsenal at home.'"
+    },
+    "dislikes_or_pet_peeves": {
+      "found": true,
+      "details": [
+        "hates cold calls from banks"
+      ],
+      "evidence": "Client said: 'I hate receiving cold calls from banks trying to push the product of the month.'"
+    },
+    "family_and_relationships": {
+      "found": true,
+      "details": {
+        "spouse": "wife",
+        "children": [
+          {
+            "name": "daughter",
+            "age": null,
+            "details": "starting university next year"
+          },
+          {
+            "name": "son",
+            "age": null,
+            "details": "graduating from secondary school soon"
+          }
+        ],
+        "parents": "",
+        "family_activities": [
+          "dining together at Crystal Jade"
+        ]
+      },
+      "evidence": "Client said: 'My wife and I also went to Crystal Jade for dinner... My daughter is starting university next year... My son is also graduating from secondary school soon.'"
+    },
+    "health_and_fitness": {
+      "found": false,
+      "details": null,
+      "evidence": null
+    },
+    "career_and_business": {
+      "found": false,
+      "details": null,
+      "evidence": null
+    },
+    "education_and_learning": {
+      "found": true,
+      "details": {
+        "client_education": "",
+        "children_schools": [
+          {
+            "name": "daughter",
+            "school": "university (starting next year)"
+          },
+          {
+            "name": "son",
+            "school": "secondary school (graduating soon)"
+          }
+        ],
+        "courses": []
+      },
+      "evidence": "Client said: 'My daughter is starting university next year... My son is also graduating from secondary school soon.'"
+    }
+  },
+  "dynamic_preferences": [],
+  "extraction_summary": {
+    "total_categories_found": 10,
+    "total_categories_not_found": 9,
+    "confidence": "High",
+    "notes": "Transcript contained explicit mentions of hobbies, sports team, favorite restaurant, pet ownership, vehicle interest, weekend routines, dislikes, family details, upcoming milestones, and children's education. No evidence for beverage preferences, favorite media, real estate status, charitable causes, communication style, tech savviness, health and fitness, career/business, or client education."
+  }
+}

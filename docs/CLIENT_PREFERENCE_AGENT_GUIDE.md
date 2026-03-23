@@ -138,6 +138,15 @@ Return a JSON object with this EXACT structure:
       "evidence": "..."
     }
   },
+  "dynamic_preferences": [
+    {
+      "category_name": "Dietary Restrictions",
+      "relevance_level": "High/Medium/Low",
+      "details": "Client is allergic to seafood and currently on Keto diet",
+      "context": "Mentioned while planning the year-end seminar dinner",
+      "evidence": "By the way, I'm allergic to seafood, and I've been on a Keto diet recently."
+    }
+  ],
   "extraction_summary": {
     "total_categories_found": 0,
     "total_categories_not_found": 19,
@@ -171,6 +180,11 @@ Return a JSON object with this EXACT structure:
    - Goal-setting conversations ("I want to retire early and travel")
 7. Do NOT hallucinate facts. If you're uncertain, do NOT include it.
 8. Count "total_categories_found" as the number of categories where "found" is true.
+9. DYNAMIC PREFERENCES: If you identify strong personal preferences or lifestyle constraints that DO NOT fit logically into the 19 predefined categories, extract them into the `dynamic_preferences` list.
+   - Use a highly professional, abstract `category_name` (Max 3 words).
+   - DO NOT create a dynamic category if it fits into the 19 predefined ones.
+   - Provide `context` explaining exactly why/when the client mentioned this.
+   - You MUST extract the exact quote as `evidence` to prove the preference exists, preventing hallucinations.
 ```
 
 ---
@@ -180,8 +194,8 @@ Return a JSON object with this EXACT structure:
 We have documented test cases in `tests/test_client_preference_service.py` to ensure the prompt behaves correctly.
 
 ### Test 1: Rich Transcript Extraction
-**Input:** A transcript containing heavy casual conversation (Golf, Japanese food, Hokkaido trip, Labrador dog, Netflix series, Liverpool fan).
-**Expected Output:** The LLM successfully sets `"found": true` for Hobbies, Pets, Sports Teams, Travel, Food, and Media, while keeping the rest as `false`.
+**Input:** A transcript containing heavy casual conversation (Golf, Japanese food, Hokkaido trip, Labrador dog, Netflix series, Liverpool fan) as well as a note about a peanut allergy outside the direct food topic.
+**Expected Output:** The LLM successfully sets `"found": true` for Hobbies, Pets, Sports Teams, Travel, Food, and Media. Moreover, it identifies the peanut allergy and structures it safely under `dynamic_preferences`.
 
 ### Test 2: Finance-Only (Anti-Hallucination Test)
 **Input:** A transcript strictly discussing financial portoflios (Equity allocation, CPF, Retirement timeline, REITs, Fixed deposits).
