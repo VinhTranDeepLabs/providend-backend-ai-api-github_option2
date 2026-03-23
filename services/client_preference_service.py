@@ -258,6 +258,15 @@ Return a JSON object with this EXACT structure:
       "evidence": "..."
     }}
   }},
+  "dynamic_preferences": [
+    {{
+      "category_name": "Dietary Restrictions",
+      "relevance_level": "High/Medium/Low",
+      "details": "Client is allergic to seafood and currently on Keto diet",
+      "context": "Mentioned while planning the year-end seminar dinner",
+      "evidence": "By the way, I'm allergic to seafood, and I've been on a Keto diet recently."
+    }}
+  ],
   "extraction_summary": {{
     "total_categories_found": 0,
     "total_categories_not_found": 19,
@@ -283,7 +292,12 @@ Return a JSON object with this EXACT structure:
    - Closing remarks ("We're heading to Bali next week")
    - Goal-setting conversations ("I want to retire early and travel")
 7. Do NOT hallucinate facts. If you're uncertain, do NOT include it.
-8. Count "total_categories_found" as the number of categories where "found" is true."""
+8. Count "total_categories_found" as the number of categories where "found" is true.
+9. DYNAMIC PREFERENCES: If you identify strong personal preferences or lifestyle constraints that DO NOT fit logically into the 19 predefined categories, extract them into the `dynamic_preferences` list.
+   - Use a highly professional, abstract `category_name` (Max 3 words).
+   - DO NOT create a dynamic category if it fits into the 19 predefined ones.
+   - Provide `context` explaining exactly why/when the client mentioned this.
+   - You MUST extract the exact quote as `evidence` to prove the preference exists, preventing hallucinations."""
 
         user_prompt = f"""Analyze this financial advisory meeting transcript and extract all personal preferences and lifestyle facts into the 19 categories.
 
