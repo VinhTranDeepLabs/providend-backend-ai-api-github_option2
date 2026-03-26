@@ -84,28 +84,40 @@ class TranscribeService:
             # Read file content
             file_content = await audio_file.read()
             
-            # Convert to mono-channel if multi-channel (Azure Speech requirement)
+            # Convert to mono-channel and enforce .wav format (Azure Speech requirement)
             try:
                 from pydub import AudioSegment
                 import io
                 
                 file_extension = os.path.splitext(audio_file.filename)[1].lstrip('.').lower()
-                pydub_format = file_extension
+                pydub_format = file_extension if file_extension != 'webm' else 'webm'
                 
                 audio_segment = AudioSegment.from_file(io.BytesIO(file_content), format=pydub_format)
                 
+                # Always convert to mono and 16kHz
                 if audio_segment.channels > 1:
                     logger.info(f"[{meeting_id}] Audio has {audio_segment.channels} channels. Converting to mono...")
                     audio_segment = audio_segment.set_channels(1)
-                    
-                    mono_io = io.BytesIO()
-                    audio_segment.export(mono_io, format=pydub_format)
-                    file_content = mono_io.getvalue()
-                    logger.info(f"[{meeting_id}] ✓ Successfully converted audio to mono-channel.")
+                
+                if audio_segment.frame_rate != 16000:
+                    logger.info(f"[{meeting_id}] Audio has {audio_segment.frame_rate}Hz. Converting to 16000Hz...")
+                    audio_segment = audio_segment.set_frame_rate(16000)
+                
+                # Enforce export as WAV format for Azure Batch Transcription
+                logger.info(f"[{meeting_id}] Formatting audio to WAV for Azure compatibility...")
+                mono_io = io.BytesIO()
+                audio_segment.export(mono_io, format='wav')
+                file_content = mono_io.getvalue()
+                
+                # Update file extension to wav
+                file_extension = 'wav'
+                
+                logger.info(f"[{meeting_id}] ✓ Successfully prepared audio as 16kHz Mono WAV.")
             except ImportError:
-                logger.warning(f"[{meeting_id}] ⚠ pydub not installed. Skipping mono conversion.")
+                logger.warning(f"[{meeting_id}] ⚠ pydub not installed. Skipping audio processing. WebM/Stereo may fail transcription.")
             except Exception as e:
-                logger.warning(f"[{meeting_id}] ⚠ Failed to convert audio to mono: {e}. Proceeding with original file.")
+                logger.error(f"[{meeting_id}] ❌ Failed to process audio via pydub: {type(e).__name__} - {e}")
+                logger.warning(f"[{meeting_id}] Proceeding with original file. This may fail transcription.")
             
             file_size_bytes = len(file_content)
             
@@ -120,8 +132,10 @@ class TranscribeService:
             if start_datetime is None:
                 start_datetime = datetime.now(timezone.utc)
             
-            # 4. Generate properly formatted blob name
-            file_extension = os.path.splitext(audio_file.filename)[1].lstrip('.')
+            # 4. Generate properly formatted blob name (always using .wav)
+            if 'file_extension' not in locals():
+                file_extension = os.path.splitext(audio_file.filename)[1].lstrip('.')
+                
             blob_name = blob_storage_service.generate_audio_filename(
                 meeting_id=meeting_id,
                 start_datetime=start_datetime,

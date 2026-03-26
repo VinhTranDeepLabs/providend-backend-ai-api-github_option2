@@ -2,8 +2,8 @@
 Blob Storage Utilities for Azure Blob Storage operations
 """
 import os
-from datetime import datetime, timezone
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 import asyncio
 
@@ -118,6 +118,40 @@ class BlobStorageService:
         """
         return f"https://{self.account_name}.blob.core.windows.net/{self.container_name}/{blob_name}"
     
+    def get_sas_url(self, blob_name: str, expiry_hours: int = 2) -> str:
+        """
+        Generate a SAS URL for a blob that remains active for a limited time.
+        Required for Azure Speech Batch Transcription to access private blobs.
+        
+        Args:
+            blob_name: Name of the blob
+            expiry_hours: How long the SAS token should be valid (default: 2 hours)
+            
+        Returns:
+            Full SAS URI for the blob
+        """
+        try:
+            import urllib.parse
+            
+            sas_token = generate_blob_sas(
+                account_name=self.account_name,
+                container_name=self.container_name,
+                blob_name=blob_name,
+                account_key=self.account_key,
+                permission=BlobSasPermissions(read=True),
+                expiry=datetime.now(timezone.utc) + timedelta(hours=expiry_hours)
+            )
+            
+            # Azure Batch Transcription requires strict URL encoding for spaces
+            encoded_blob_name = urllib.parse.quote(blob_name)
+            blob_url = f"https://{self.account_name}.blob.core.windows.net/{self.container_name}/{encoded_blob_name}"
+            
+            return f"{blob_url}?{sas_token}"
+        except Exception as e:
+            # Fallback to normal URL if SAS generation fails
+            print(f"Warning: Failed to generate SAS token for {blob_name}: {e}")
+            return self.get_blob_url(blob_name)
+
     def validate_audio_extension(self, filename: str) -> bool:
         """
         Validate that file has an allowed audio extension

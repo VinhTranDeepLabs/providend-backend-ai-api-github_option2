@@ -265,13 +265,13 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
                 return {"success": False, "error": str(e)}
 
         
-        # Run core tasks in parallel
-        autofill_result, recommendation_result = await asyncio.gather(
-            autofill_task(),
-            recommendation_task()
-        )
-        
-        # Option 1: Run preference task sequentially AFTER core tasks to prevent Rate Limit
+        # Run core tasks sequentially to prevent psycopg2 connection errors
+        # psycopg2 connections are not thread-safe and running them concurrently via asyncio.gather
+        # causes "InterfaceError: connection already closed" or other transaction errors
+        autofill_result = await autofill_task()
+        recommendation_result = await recommendation_task()
+
+        # Run preference task sequentially AFTER core tasks to prevent Rate Limit
         preference_result = await preference_task()
 
         # Check if core tasks succeeded (preferences are optional — non-blocking)
@@ -502,16 +502,27 @@ def monitor_loop():
     logger.info(f"Backoff Implementation: Using updated_datetime field")
     logger.info("="*60 + "\n")
     
-    # Create database connection
+    # Create initial database connection
+    conn = None
     try:
         conn = create_db_connection()
     except Exception as e:
-        logger.error(f"Failed to connect to database: {e}")
-        return
+        logger.error(f"Failed to connect to database initially: {e}")
+        # Will retry in the loop below
     
     try:
         while running:
             try:
+                # Ensure connection exists and is open
+                if conn is None or conn.closed != 0:
+                    logger.info("Database connection closed or missing. Attempting to reconnect...")
+                    try:
+                        conn = create_db_connection()
+                        logger.info("Successfully reconnected to database.")
+                    except Exception as ce:
+                        logger.error(f"Failed to reconnect to database: {ce}")
+                        raise ce
+                        
                 logger.info(f"\n[{datetime.now()}] Checking for meetings to process...")
                 
                 # Process batch of meetings
@@ -523,15 +534,32 @@ def monitor_loop():
                     time.sleep(POLL_INTERVAL)
                 
             except Exception as e:
+                import psycopg2
                 logger.error(f"Error in monitoring loop: {e}")
-                logger.exception(e)
+                
+                # If it's a connection error, force a reconnect on the next iteration
+                if isinstance(e, psycopg2.InterfaceError) or "connection already closed" in str(e).lower() or isinstance(e, psycopg2.OperationalError):
+                    logger.warning("Connection error detected. Forcing reconnection on next attempt.")
+                    if conn is not None and getattr(conn, 'closed', 1) == 0:
+                        try:
+                            conn.close()
+                        except:
+                            pass
+                    conn = None
+                else:
+                    logger.exception(e)
+                    
                 logger.info(f"Retrying in {POLL_INTERVAL} seconds...")
                 time.sleep(POLL_INTERVAL)
     
     finally:
         # Cleanup
-        conn.close()
-        logger.info("\n✓ Database connection closed")
+        if conn and getattr(conn, 'closed', 1) == 0:
+            try:
+                conn.close()
+                logger.info("\n✓ Database connection closed")
+            except:
+                pass
         logger.info("Meeting Processor Service Stopped\n")
 
 

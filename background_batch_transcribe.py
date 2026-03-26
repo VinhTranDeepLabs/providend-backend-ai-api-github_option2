@@ -32,8 +32,9 @@ import signal
 import sys
 import logging
 
-# Import transcription service
+# Import services
 from services.transcription_service import TranscribeService
+from utils.blob_utils import blob_storage_service
 
 # Load environment variables
 load_dotenv()
@@ -307,9 +308,9 @@ def process_new_audio_file(blob_info: dict, conn):
         return False
     
     try:
-        # Build blob URL
-        blob_url = build_blob_url(blob_name)
-        logger.info(f"Blob URL: {blob_url}")
+        # Build SAS URL for Azure Speech Service
+        blob_url = blob_storage_service.get_sas_url(blob_name)
+        logger.info(f"Generated SAS URL: {blob_url.split('?')[0]}... (token appended)")
         
         # Transcribe using batch API
         logger.info("Starting batch transcription...")
