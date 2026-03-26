@@ -61,7 +61,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('audio_monitor.log'),
+        logging.FileHandler('audio_monitor.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -316,8 +316,7 @@ def process_new_audio_file(blob_info: dict, conn):
         transcribe_service = TranscribeService()
         results = transcribe_service.batch_transcribe_urls(
             audio_urls=[blob_url],
-            language='en-SG',    # Explicit locale for Singapore English
-            max_speakers=5       # Adjust based on your typical meeting size
+            language='auto'  # Auto-detect language
         )
         
         if not results or len(results) == 0:

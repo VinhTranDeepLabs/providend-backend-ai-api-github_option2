@@ -74,7 +74,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('meeting_processor.log'),
+        logging.FileHandler('meeting_processor.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -298,10 +298,16 @@ async def process_meeting_tasks(meeting_id: str, transcript: str, conn) -> Dict:
             if not recommendation_result["success"]:
                 errors.append(f"Recommendations: {recommendation_result['error']}")
             
-            return {
+            result_dict = {
                 "success": False,
                 "error": "; ".join(errors)
             }
+            
+            # Save preferences if they succeeded even when core tasks failed
+            if preference_result["success"]:
+                result_dict["client_preferences"] = preference_result["client_preferences"]
+                
+            return result_dict
         
     except Exception as e:
         logger.error(f"[{meeting_id}] Unexpected error in processing: {e}")
@@ -405,6 +411,16 @@ def process_single_meeting(meeting: Dict, conn) -> bool:
         else:
             # Failed - mark for retry or give up
             error_msg = result["error"]
+            
+            # --- NEW: Save preferences if extracted successfully despite core failure ---
+            if "client_preferences" in result:
+                db.update_meeting_detail(
+                    meeting_id=meeting_id, 
+                    client_preferences=result["client_preferences"]
+                )
+                logger.info(f"[{meeting_id}] ✓ Saved client preferences despite core task failure")
+            # --------------------------------------------------------------------------
+            
             fail_result = db.mark_processing_failed(
                 meeting_id=meeting_id,
                 error_msg=error_msg,

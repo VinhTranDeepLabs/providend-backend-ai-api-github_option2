@@ -26,7 +26,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('audio_monitor.log'),
+        logging.FileHandler('audio_monitor.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -117,8 +117,7 @@ async def batch_transcribe(request: BatchTranscribeRequest):
         # Perform batch transcription
         results = TranscribeService().batch_transcribe_urls(
             audio_urls=request.audio_urls,
-            language=request.language,
-            max_speakers=request.max_speakers
+            language=request.language
         )
         
         return BatchTranscribeResponse(

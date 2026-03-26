@@ -20,7 +20,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('meeting_processor.log'),
+        logging.FileHandler('meeting_processor.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -83,6 +83,30 @@ class TranscribeService:
             
             # Read file content
             file_content = await audio_file.read()
+            
+            # Convert to mono-channel if multi-channel (Azure Speech requirement)
+            try:
+                from pydub import AudioSegment
+                import io
+                
+                file_extension = os.path.splitext(audio_file.filename)[1].lstrip('.').lower()
+                pydub_format = file_extension
+                
+                audio_segment = AudioSegment.from_file(io.BytesIO(file_content), format=pydub_format)
+                
+                if audio_segment.channels > 1:
+                    logger.info(f"[{meeting_id}] Audio has {audio_segment.channels} channels. Converting to mono...")
+                    audio_segment = audio_segment.set_channels(1)
+                    
+                    mono_io = io.BytesIO()
+                    audio_segment.export(mono_io, format=pydub_format)
+                    file_content = mono_io.getvalue()
+                    logger.info(f"[{meeting_id}] ✓ Successfully converted audio to mono-channel.")
+            except ImportError:
+                logger.warning(f"[{meeting_id}] ⚠ pydub not installed. Skipping mono conversion.")
+            except Exception as e:
+                logger.warning(f"[{meeting_id}] ⚠ Failed to convert audio to mono: {e}. Proceeding with original file.")
+            
             file_size_bytes = len(file_content)
             
             if file_size_bytes > MAX_FILE_SIZE:
@@ -164,175 +188,214 @@ class TranscribeService:
     def batch_transcribe_urls(
         self,
         audio_urls: List[str],
-        language: str = 'en-SG',
-        max_speakers: int = 4
+        language: str = 'auto'
     ) -> List[TranscriptionResult]:
         """
-        Transcribe audio files with speaker diarization using API version 2025-10-15
+        Transcribe audio files with speaker diarization
 
         Args:
-            audio_urls: List of blob URLs to audio files
-            language: Locale code (default: 'en-SG'). Use specific locale, not 'auto'.
-            max_speakers: Maximum number of speakers for diarization (default: 10, max: 36)
+            audio_urls: List of public URLs to audio files
+            language: 'auto' for auto-detect, or specific locale like 'en-US', 'zh-CN', 'bn-IN'
 
         Returns:
             List of TranscriptionResult objects, one per audio file
         """
-        import time
 
-        # ===== API 2025-10-15 endpoint =====
-        endpoint = (
-            f"https://{self.speech_region}.api.cognitive.microsoft.com"
-            f"/speechtotext/transcriptions:submit?api-version=2025-10-15"
-        )
+        base_url = f'https://{AZURE_SPEECH_REGION}.api.cognitive.microsoft.com/speechtotext/v3.2'
+        transcriptions_url = f'{base_url}/transcriptions'
 
         headers = {
-            'Ocp-Apim-Subscription-Key': self.speech_key,
+            'Ocp-Apim-Subscription-Key': AZURE_SPEECH_KEY,
             'Content-Type': 'application/json'
         }
 
-        # Use public blob URLs directly (no SAS tokens needed)
-        logger.info(f"Audio URLs: {audio_urls}")
-
-        # ===== Simplified diarization config for 2025-10-15 =====
-        # No more separate 'diarizationEnabled' + nested 'diarization.speakers.minCount/maxCount'
-        # Now it's just: diarization: { enabled: true, maxSpeakers: N }
-        properties = {
-            'wordLevelTimestampsEnabled': True,
-            'punctuationMode': 'DictatedAndAutomatic',
-            'profanityFilterMode': 'None',
-            'timeToLiveHours': 48,  # Was timeToLive ISO8601 string in v3.2, now integer hours
-            'diarization': {
-                'enabled': True,
-                'maxSpeakers': max_speakers
-            }
-        }
-
-        # ===== Handle language identification if needed =====
-        # If your meetings have multiple languages (e.g. English + Chinese),
-        # use languageIdentification instead of 'auto'
+        # Configure language settings
         if language == 'auto':
-            # Instead of 'auto', use language identification with candidate locales
-            language = 'en-SG'  # Primary locale must still be set
-            properties['languageIdentification'] = {
-                'candidateLocales': ['en-US', 'en-SG', 'zh-CN'],
-                'mode': 'Continuous'
+            primary_locale = 'en-US'
+            job_config = {
+                'contentUrls': audio_urls,
+                'properties': {
+                    'diarizationEnabled': True,
+                    'diarization': {
+                        'speakers': {
+                            'minCount': 1,
+                            'maxCount': 10
+                        }
+                    },
+                    'wordLevelTimestampsEnabled': True,
+                    'punctuationMode': 'DictatedAndAutomatic',
+                    'profanityFilterMode': 'Masked',
+                    'languageIdentification': {
+                        'candidateLocales': ['en-US', 'zh-CN'],
+                        'mode': 'Continuous'
+                    }
+                },
+                'locale': primary_locale,
+                'displayName': f'Batch_Transcription_{int(time.time())}'
+            }
+        else:
+            job_config = {
+                'contentUrls': audio_urls,
+                'properties': {
+                    'diarizationEnabled': True,
+                    'diarization': {
+                        'speakers': {
+                            'minCount': 1,
+                            'maxCount': 10
+                        }
+                    },
+                    'wordLevelTimestampsEnabled': True,
+                    'punctuationMode': 'DictatedAndAutomatic',
+                    'profanityFilterMode': 'Masked'
+                },
+                'locale': language,
+                'displayName': f'Batch_Transcription_{int(time.time())}'
             }
 
-        job_config = {
-            'contentUrls': audio_urls,
-            'locale': language,
-            'displayName': f'Batch_Transcription_{int(time.time())}',
-            'properties': properties
-        }
+        # Step 1: Create transcription job
+        logger.info(f"Creating transcription job for: {audio_urls}")
+        create_response = requests.post(transcriptions_url, headers=headers, json=job_config)
 
-        logger.info(f"Submitting transcription job: locale={language}, "
-                    f"maxSpeakers={max_speakers}, files={len(audio_urls)}")
+        if create_response.status_code != 201:
+            raise Exception(f"Failed to create job: {create_response.text}")
 
-        # ===== Submit transcription job =====
-        response = requests.post(endpoint, headers=headers, json=job_config)
-        response.raise_for_status()
+        job_data = create_response.json()
+        job_url = job_data['self']
+        job_id = job_url.split('/')[-1]
+        logger.info(f"Job created: {job_id}")
 
-        response_data = response.json()
+        # Step 2: Poll for completion
+        max_wait_time = 600  # 10 minutes
+        poll_interval = 5
+        elapsed_time = 0
 
-        # ===== Use 'self' URL for polling (not constructing URL manually) =====
-        transcription_url = response_data['self']
-        files_url = response_data['links']['files']
+        while elapsed_time < max_wait_time:
+            time.sleep(poll_interval)
+            elapsed_time += poll_interval
 
-        logger.info(f"Job submitted: {transcription_url}")
+            status_response = requests.get(job_url, headers=headers)
 
-        # ===== Poll for completion =====
-        status = 'NotStarted'
-        poll_count = 0
-        max_polls = 360  # 30 minutes at 5-second intervals
+            if status_response.status_code != 200:
+                raise Exception(f"Failed to get status: {status_response.text}")
 
-        while status not in ('Succeeded', 'Failed') and poll_count < max_polls:
-            time.sleep(5)
-            poll_count += 1
+            job_status = status_response.json()
+            status = job_status['status']
 
-            status_response = requests.get(transcription_url, headers=headers)
-            status_response.raise_for_status()
-            status_data = status_response.json()
-            status = status_data.get('status', 'Unknown')
+            logger.info(f"Status: {status} (elapsed: {elapsed_time}s)")
 
-            if poll_count % 12 == 0:  # Log every 60 seconds
-                logger.info(f"Poll #{poll_count}: status={status}")
+            if status == 'Succeeded':
+                break
+            elif status == 'Failed':
+                error = job_status.get('properties', {}).get('error', {})
+                raise Exception(f"Job failed: {error.get('message', 'Unknown error')}")
+            elif status in ['NotStarted', 'Running']:
+                continue
 
-        if status == 'Failed':
-            error_info = status_data.get('properties', {}).get('error', {})
-            raise Exception(f"Transcription failed: {error_info}")
+        if elapsed_time >= max_wait_time:
+            raise Exception("Timeout: Job took longer than 10 minutes")
 
-        if poll_count >= max_polls:
-            raise Exception("Transcription timed out after 30 minutes")
-
-        logger.info(f"Transcription succeeded after {poll_count * 5} seconds")
-
-        # ===== Get results =====
+        # Step 3: Get all transcript files
+        files_url = f"{job_url}/files"
         files_response = requests.get(files_url, headers=headers)
-        files_response.raise_for_status()
+
+        if files_response.status_code != 200:
+            raise Exception(f"Failed to get files: {files_response.text}")
+
         files_data = files_response.json()
 
+        # Filter transcription files (one per audio URL)
+        transcript_files = [f for f in files_data['values'] if f['kind'] == 'Transcription']
+
+        if not transcript_files:
+            raise Exception("No transcript files found")
+
+        # Step 4: Process each transcript file
         results = []
+        
+        for transcript_file in transcript_files:
+            transcript_url = transcript_file['links']['contentUrl']
+            transcript_response = requests.get(transcript_url)
 
-        for file_info in files_data.get('values', []):
-            if file_info.get('kind') == 'Transcription':
-                content_url = file_info.get('links', {}).get('contentUrl')
-                if not content_url:
-                    continue
+            if transcript_response.status_code != 200:
+                logger.info(f"Warning: Failed to download transcript: {transcript_response.text}")
+                continue
 
-                content_response = requests.get(content_url)
-                content_response.raise_for_status()
-                transcription_data = content_response.json()
+            transcript_json = transcript_response.json()
+            
+            # Extract source audio URL
+            source_url = transcript_json.get('source', audio_urls[0] if len(audio_urls) == 1 else '')
+            
+            # Extract language
+            detected_language = transcript_json.get('locale', language if language != 'auto' else 'en-US')
+            
+            # Step 5: Parse speaker segments
+            speaker_segments = []
+            transcript_array = []  # Changed from transcript_lines
+            max_end_time = 0.0
 
-                # ===== Parse diarized output with speaker labels =====
-                speaker_segments = []
-                max_end_time = 0.0
-
-                for phrase in transcription_data.get('recognizedPhrases', []):
-                    speaker = phrase.get('speaker', 0)
+            if 'recognizedPhrases' in transcript_json:
+                for phrase in transcript_json['recognizedPhrases']:
+                    speaker_id = phrase.get('speaker', 0)
                     n_best = phrase.get('nBest', [])
-                    text = n_best[0].get('display', '') if n_best else ''
 
-                    start_time = phrase.get('offsetInTicks', 0) / 10_000_000
-                    duration_ticks = phrase.get('durationInTicks', 0) / 10_000_000
-                    end_time = start_time + duration_ticks
+                    if not n_best:
+                        continue
 
-                    if end_time > max_end_time:
-                        max_end_time = end_time
+                    best_result = n_best[0]
+                    text = best_result.get('display', '')
 
-                    speaker_segments.append(SpeakerSegment(
-                        speaker=f"Speaker {speaker}",
+                    if not text.strip():
+                        continue
+
+                    # Calculate start and end times
+                    offset_ticks = phrase.get('offsetInTicks', 0)
+                    duration_ticks = phrase.get('durationInTicks', 0)
+                    
+                    start_time = offset_ticks / 10_000_000  # Convert to seconds
+                    end_time = (offset_ticks + duration_ticks) / 10_000_000
+                    
+                    max_end_time = max(max_end_time, end_time)
+
+                    speaker_label = f"Guest-{speaker_id}"  # Changed to Guest-N format
+
+                    segment = SpeakerSegment(
+                        speaker=speaker_label,
                         text=text,
                         start_time=start_time,
                         end_time=end_time
-                    ))
+                    )
+                    
+                    speaker_segments.append(segment)
+                    # Changed: Build JSON array instead of plain text lines
+                    transcript_array.append({
+                        "speaker": speaker_label,
+                        "text": text
+                    })
 
-                # ===== Build formatted transcript with speaker labels =====
-                transcript_lines = []
-                for seg in speaker_segments:
-                    transcript_lines.append(f"{seg.speaker}: {seg.text}")
+            # Sort segments by start time
+            speaker_segments.sort(key=lambda x: x.start_time if x.start_time else 0)
 
-                formatted_transcript = '\n'.join(transcript_lines)
+            # Create JSON formatted transcript
+            transcript = json.dumps(transcript_array)  # Changed to JSON
 
-                # Determine audio URL for this result
-                audio_url = audio_urls[0] if audio_urls else 'unknown'
+            # Create TranscriptionResult
+            result = TranscriptionResult(
+                audio_url=source_url,
+                transcript=transcript,
+                speaker_segments=speaker_segments,
+                language=detected_language,
+                duration=max_end_time if max_end_time > 0 else None
+            )
+            
+            results.append(result)
 
-                results.append(TranscriptionResult(
-                    audio_url=audio_url,
-                    transcript=formatted_transcript,
-                    speaker_segments=speaker_segments,
-                    language=language,
-                    duration=max_end_time if speaker_segments else None
-                ))
-
-        # ===== Cleanup: Delete the transcription job =====
+        # Step 6: Cleanup - delete job
         try:
-            requests.delete(transcription_url, headers=headers)
-            logger.info("Transcription job cleaned up")
-        except Exception as e:
-            logger.warning(f"Cleanup failed: {e}")
+            requests.delete(job_url, headers=headers)
+            logger.info(f"Job {job_id} deleted")
+        except:
+            pass
 
-        logger.info(f"Returning {len(results)} transcription results")
         return results
         
     
