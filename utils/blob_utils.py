@@ -108,15 +108,19 @@ class BlobStorageService:
     
     def get_blob_url(self, blob_name: str) -> str:
         """
-        Construct public URL for a blob
+        Construct public URL for a blob.
+        Applies URL encoding to handle spaces and special characters
+        (e.g. '+' timezone offset) in filenames — required by Azure Batch Transcription.
         
         Args:
             blob_name: Name of the blob
         
         Returns:
-            Public URL string
+            Public URL string with percent-encoded blob name
         """
-        return f"https://{self.account_name}.blob.core.windows.net/{self.container_name}/{blob_name}"
+        import urllib.parse
+        encoded_blob_name = urllib.parse.quote(blob_name)
+        return f"https://{self.account_name}.blob.core.windows.net/{self.container_name}/{encoded_blob_name}"
     
     def get_sas_url(self, blob_name: str, expiry_hours: int = 2) -> str:
         """

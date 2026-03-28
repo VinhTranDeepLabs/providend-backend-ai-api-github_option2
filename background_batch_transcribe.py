@@ -308,9 +308,9 @@ def process_new_audio_file(blob_info: dict, conn):
         return False
     
     try:
-        # Build SAS URL for Azure Speech Service
-        blob_url = blob_storage_service.get_sas_url(blob_name)
-        logger.info(f"Generated SAS URL: {blob_url.split('?')[0]}... (token appended)")
+        # Build public Blob URL (URL-encoded, no SAS token required)
+        blob_url = blob_storage_service.get_blob_url(blob_name)
+        logger.info(f"Generated Blob URL: {blob_url}")
         
         # Transcribe using batch API
         logger.info("Starting batch transcription...")
